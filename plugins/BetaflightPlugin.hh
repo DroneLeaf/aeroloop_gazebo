@@ -14,19 +14,22 @@
  * limitations under the License.
  *
 */
-#ifndef GAZEBO_PLUGINS_BETAFLIGHTPLUGIN_HH_
-#define GAZEBO_PLUGINS_BETAFLIGHTPLUGIN_HH_
+#ifndef GZ_SIM_SYSTEMS_BETAFLIGHTPLUGIN_HH_
+#define GZ_SIM_SYSTEMS_BETAFLIGHTPLUGIN_HH_
 
-#include <sdf/sdf.hh>
-#include <gazebo/common/common.hh>
-#include <gazebo/physics/physics.hh>
+#include <memory>
+#include <gz/sim/System.hh>
 
-namespace gazebo
+namespace gz
+{
+namespace sim
+{
+namespace systems
 {
   // Forward declare private data class
   class BetaflightPluginPrivate;
 
-  /// \brief Interface ArduCopter from ardupilot stack
+  /// \brief Interface Betaflight from betaflight stack
   /// modeled after SITL/SIM_*
   ///
   /// The plugin requires the following parameters:
@@ -45,36 +48,31 @@ namespace gazebo
   /// <imuName>     scoped name for the imu sensor
   /// <connectionTimeoutMaxCount> timeout before giving up on
   ///                             controller synchronization
-  class GAZEBO_VISIBLE BetaflightPlugin : public ModelPlugin
+  class BetaflightPlugin:
+    public System,
+    public ISystemConfigure,
+    public ISystemPreUpdate
   {
     /// \brief Constructor.
     public: BetaflightPlugin();
 
     /// \brief Destructor.
-    public: ~BetaflightPlugin();
+    public: ~BetaflightPlugin() override;
 
-    // Documentation Inherited.
-    public: virtual void Load(physics::ModelPtr _model, sdf::ElementPtr _sdf);
+    // Documentation inherited
+    public: void Configure(const Entity &_entity,
+                           const std::shared_ptr<const sdf::Element> &_sdf,
+                           EntityComponentManager &_ecm,
+                           EventManager &_eventMgr) override;
 
-    /// \brief Update the control surfaces controllers.
-    /// \param[in] _info Update information provided by the server.
-    private: void OnUpdate();
-
-    /// \brief Update PID Joint controllers.
-    /// \param[in] _dt time step size since last update.
-    private: void ApplyMotorForces(const double _dt);
-
-    /// \brief Reset PID Joint controllers.
-    private: void ResetPIDs();
-
-    /// \brief Receive motor commands from ArduCopter
-    private: void ReceiveMotorCommand();
-
-    /// \brief Send state to ArduCopter
-    private: void SendState() const;
+    // Documentation inherited
+    public: void PreUpdate(const UpdateInfo &_info,
+                           EntityComponentManager &_ecm) override;
 
     /// \brief Private data pointer.
     private: std::unique_ptr<BetaflightPluginPrivate> dataPtr;
   };
+}
+}
 }
 #endif

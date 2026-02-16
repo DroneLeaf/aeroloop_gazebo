@@ -1,11 +1,18 @@
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 3.10.2)
 project(BetaflightPlugin)
 
-find_package(gazebo REQUIRED)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-include_directories(include ${GAZEBO_INCLUDE_DIRS})
-link_directories(${GAZEBO_LIBRARY_DIRS})
-list(APPEND CMAKE_CXX_FLAGS ${GAZEBO_CXX_FLAGS})
+find_package(gz-sim8 REQUIRED)
+find_package(gz-plugin2 REQUIRED COMPONENTS register)
+find_package(gz-math7 REQUIRED)
 
 add_library(BetaflightPlugin SHARED BetaflightPlugin.cc)
-target_link_libraries(BetaflightPlugin ${GAZEBO_LIBRARIES})
+set_property(TARGET BetaflightPlugin PROPERTY CXX_STANDARD 17)
+target_link_libraries(BetaflightPlugin
+  PRIVATE
+    gz-sim8::gz-sim8
+    gz-plugin2::gz-plugin2
+    gz-math7::gz-math7
+)

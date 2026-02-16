@@ -28,6 +28,7 @@
   #include <netinet/in.h>
   #include <netinet/tcp.h>
   #include <arpa/inet.h>
+  #include <unistd.h>
   using raw_type = void;
 #endif
 
@@ -39,35 +40,55 @@ typedef SSIZE_T ssize_t;
 #include <mutex>
 #include <string>
 #include <vector>
+#include <chrono>
+
 #include <sdf/sdf.hh>
-#include <ignition/math/Filter.hh>
-#include <gazebo/common/Assert.hh>
-#include <gazebo/common/Plugin.hh>
-#include <gazebo/msgs/msgs.hh>
-#include <gazebo/sensors/sensors.hh>
-#include <gazebo/transport/transport.hh>
+#include <gz/math/Filter.hh>
+#include <gz/math/PID.hh>
+#include <gz/math/Pose3.hh>
+#include <gz/math/Quaternion.hh>
+#include <gz/math/Vector3.hh>
+
+#include <gz/sim/Model.hh>
+#include <gz/sim/Util.hh>
+#include <gz/sim/components/AngularVelocity.hh>
+#include <gz/sim/components/Imu.hh>
+#include <gz/sim/components/Joint.hh>
+#include <gz/sim/components/JointForceCmd.hh>
+#include <gz/sim/components/JointVelocity.hh>
+#include <gz/sim/components/LinearAcceleration.hh>
+#include <gz/sim/components/LinearVelocity.hh>
+#include <gz/sim/components/Name.hh>
+#include <gz/sim/components/Pose.hh>
+#include <gz/sim/components/Sensor.hh>
+#include <gz/plugin/Register.hh>
+
 #include "BetaflightPlugin.hh"
 
 #define MAX_MOTORS 255
 #define RADSEC2RPM 9.549296585513721
-using namespace gazebo;
 
-GZ_REGISTER_MODEL_PLUGIN(BetaflightPlugin)
+using namespace gz;
+using namespace sim;
+using namespace systems;
 
 /// \brief Obtains a parameter from sdf.
 /// \param[in] _sdf Pointer to the sdf object.
 /// \param[in] _name Name of the parameter.
 /// \param[out] _param Param Variable to write the parameter to.
 /// \param[in] _default_value Default value, if the parameter not available.
-/// \param[in] _verbose If true, gzerror if the parameter is not available.
+/// \param[in] _verbose If true, gzerr if the parameter is not available.
 /// \return True if the parameter was found in _sdf, false otherwise.
 template<class T>
-bool getSdfParam(sdf::ElementPtr _sdf, const std::string &_name,
+bool getSdfParam(std::shared_ptr<const sdf::Element> _sdf, const std::string &_name,
   T &_param, const T &_defaultValue, const bool &_verbose = false)
 {
   if (_sdf->HasElement(_name))
   {
-    _param = _sdf->GetElement(_name)->Get<T>();
+    // Use const_pointer_cast to work with const sdf::Element
+    auto element = std::const_pointer_cast<sdf::Element>(
+        std::const_pointer_cast<sdf::Element>(_sdf)->GetElement(_name));
+    _param = element->Get<T>();
     return true;
   }
 
@@ -87,7 +108,7 @@ struct ServoPacket
   float motorSpeed[MAX_MOTORS];
 };
 
-/// \brief Flight Dynamics Model packet that is sent back to the ArduCopter
+/// \brief Flight Dynamics Model packet that is sent back to Betaflight
 struct fdmPacket
 {
   /// \brief packet timestamp
@@ -108,11 +129,11 @@ struct fdmPacket
   /// \brief Model position in NED frame
   double positionXYZ[3];
 
-	double escTemperature[4];
-	double escVoltage[4];
-	double escCurrent[4];
-	double escConsumption[4];
-	double escRpm[4];
+  double escTemperature[4];
+  double escVoltage[4];
+  double escCurrent[4];
+  double escConsumption[4];
+  double escRpm[4];
 };
 
 /// \brief Rotor class
@@ -139,13 +160,13 @@ class Rotor
   public: double cmd = 0;
 
   /// \brief Velocity PID for motor control
-  public: common::PID pid;
+  public: gz::math::PID pid;
 
-  /// \brief Control propeller joint.
+  /// \brief Control propeller joint name.
   public: std::string jointName;
 
-  /// \brief Control propeller joint.
-  public: physics::JointPtr joint;
+  /// \brief Control propeller joint entity.
+  public: Entity jointEntity;
 
   /// \brief direction multiplier for this rotor
   public: double multiplier = 1;
@@ -154,7 +175,7 @@ class Rotor
   public: double rotorVelocitySlowdownSim;
   public: double frequencyCutoff;
   public: double samplingRate;
-  public: ignition::math::OnePole<double> velocityFilter;
+  public: gz::math::OnePole<double> velocityFilter;
 
   public: static double kDefaultRotorVelocitySlowdownSim;
   public: static double kDefaultFrequencyCutoff;
@@ -166,9 +187,9 @@ double Rotor::kDefaultFrequencyCutoff = 5.0;
 double Rotor::kDefaultSamplingRate = 0.2;
 
 // Private data class
-class gazebo::BetaflightPluginPrivate
+class gz::sim::systems::BetaflightPluginPrivate
 {
-  /// \brief Bind to an adress and port
+  /// \brief Bind to an address and port
   /// \param[in] _address Address to bind to.
   /// \param[in] _port Port to bind to.
   /// \return True on success.
@@ -195,7 +216,7 @@ class gazebo::BetaflightPluginPrivate
   /// \param[in] _port Socket port
   /// \param[out] _sockaddr New socket address structure.
   public: void MakeSockAddr(const char *_address, const uint16_t _port,
-    struct sockaddr_in &_sockaddr)
+    struct sockaddr_in &_sockaddr) const
   {
     memset(&_sockaddr, 0, sizeof(_sockaddr));
 
@@ -235,17 +256,20 @@ class gazebo::BetaflightPluginPrivate
     #endif
   }
 
-  /// \brief Pointer to the update event connection.
-  public: event::ConnectionPtr updateConnection;
+  /// \brief Model entity
+  public: Entity modelEntity{kNullEntity};
 
-  /// \brief Pointer to the model;
-  public: physics::ModelPtr model;
+  /// \brief Model interface
+  public: Model model{kNullEntity};
+
+  /// \brief Link entity for getting velocity
+  public: Entity modelLinkEntity{kNullEntity};
 
   /// \brief array of propellers
   public: std::vector<Rotor> rotors;
 
   /// \brief keep track of controller update sim-time.
-  public: gazebo::common::Time lastControllerUpdateTime;
+  public: std::chrono::steady_clock::duration lastControllerUpdateTime{0};
 
   /// \brief Controller update mutex.
   public: std::mutex mutex;
@@ -253,19 +277,36 @@ class gazebo::BetaflightPluginPrivate
   /// \brief Socket handle
   public: int handle;
 
-  /// \brief Pointer to an IMU sensor
-  public: sensors::ImuSensorPtr imuSensor;
+  /// \brief IMU sensor entity
+  public: Entity imuEntity{kNullEntity};
 
-  /// \brief false before ardupilot controller is online
+  /// \brief false before betaflight controller is online
   /// to allow gazebo to continue without waiting
-  public: bool arduCopterOnline;
+  public: bool betaflightOnline;
 
-  /// \brief number of times ArduCotper skips update
+  /// \brief number of times Betaflight skips update
   public: int connectionTimeoutCount;
 
-  /// \brief number of times ArduCotper skips update
-  /// before marking ArduCopter offline
+  /// \brief number of times Betaflight skips update
+  /// before marking Betaflight offline
   public: int connectionTimeoutMaxCount;
+
+  /// \brief Update the control surfaces controllers.
+  public: void OnUpdate(EntityComponentManager &_ecm,
+                        const std::chrono::steady_clock::duration &_simTime);
+
+  /// \brief Update PID Joint controllers.
+  /// \param[in] _dt time step since last update.
+  public: void ApplyMotorForces(const double _dt, EntityComponentManager &_ecm);
+
+  /// \brief Reset PID Joint controllers.
+  public: void ResetPIDs();
+
+  /// \brief Receive motor commands from Betaflight
+  public: void ReceiveMotorCommand();
+
+  /// \brief Send state to Betaflight
+  public: void SendState(EntityComponentManager &_ecm) const;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -288,7 +329,7 @@ BetaflightPlugin::BetaflightPlugin()
     return;
   }
 
-  this->dataPtr->arduCopterOnline = false;
+  this->dataPtr->betaflightOnline = false;
 
   this->dataPtr->connectionTimeoutCount = 0;
 
@@ -308,20 +349,38 @@ BetaflightPlugin::BetaflightPlugin()
 /////////////////////////////////////////////////
 BetaflightPlugin::~BetaflightPlugin()
 {
+  #ifdef _WIN32
+  closesocket(this->dataPtr->handle);
+  #else
+  close(this->dataPtr->handle);
+  #endif
 }
 
 /////////////////////////////////////////////////
-void BetaflightPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
+void BetaflightPlugin::Configure(const Entity &_entity,
+    const std::shared_ptr<const sdf::Element> &_sdf,
+    EntityComponentManager &_ecm,
+    EventManager & /*_eventMgr*/)
 {
-  GZ_ASSERT(_model, "BetaflightPlugin _model pointer is null");
-  GZ_ASSERT(_sdf, "BetaflightPlugin _sdf pointer is null");
+  this->dataPtr->model = Model(_entity);
+  this->dataPtr->modelEntity = _entity;
 
-  this->dataPtr->model = _model;
+  if (!this->dataPtr->model.Valid(_ecm))
+  {
+    gzerr << "BetaflightPlugin should be attached to a model entity. "
+          << "Failed to initialize." << std::endl;
+    return;
+  }
+
+  // Get the canonical link - first link in the model
+  this->dataPtr->modelLinkEntity = this->dataPtr->model.CanonicalLink(_ecm);
 
   // per rotor
   if (_sdf->HasElement("rotor"))
   {
-    sdf::ElementPtr rotorSDF = _sdf->GetElement("rotor");
+    // Cast away const to call GetElement and Clone
+    auto sdfNonConst = std::const_pointer_cast<sdf::Element>(_sdf);
+    sdf::ElementPtr rotorSDF = sdfNonConst->GetElement("rotor")->Clone();
 
     while (rotorSDF)
     {
@@ -349,8 +408,8 @@ void BetaflightPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
       }
 
       // Get the pointer to the joint.
-      rotor.joint = _model->GetJoint(rotor.jointName);
-      if (rotor.joint == nullptr)
+      rotor.jointEntity = this->dataPtr->model.JointByName(_ecm, rotor.jointName);
+      if (rotor.jointEntity == kNullEntity)
       {
         gzerr << "Couldn't find specified joint ["
             << rotor.jointName << "]. This plugin will not run.\n";
@@ -382,7 +441,7 @@ void BetaflightPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
       getSdfParam<double>(rotorSDF, "rotorVelocitySlowdownSim",
           rotor.rotorVelocitySlowdownSim, 1);
 
-      if (ignition::math::equal(rotor.rotorVelocitySlowdownSim, 0.0))
+      if (gz::math::equal(rotor.rotorVelocitySlowdownSim, 0.0))
       {
         gzerr << "rotor for joint [" << rotor.jointName
               << "] rotorVelocitySlowdownSim is zero,"
@@ -395,7 +454,7 @@ void BetaflightPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
       getSdfParam<double>(rotorSDF, "samplingRate",
           rotor.samplingRate, rotor.samplingRate);
 
-      // use ignition::math::Filter
+      // use gz::math::Filter
       rotor.velocityFilter.Fc(rotor.frequencyCutoff, rotor.samplingRate);
 
       // initialize filter to zero value
@@ -406,135 +465,184 @@ void BetaflightPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
 
       // Overload the PID parameters if they are available.
       double param;
-      getSdfParam<double>(rotorSDF, "vel_p_gain", param, rotor.pid.GetPGain());
+      getSdfParam<double>(rotorSDF, "vel_p_gain", param, rotor.pid.PGain());
       rotor.pid.SetPGain(param);
 
-      getSdfParam<double>(rotorSDF, "vel_i_gain", param, rotor.pid.GetIGain());
+      getSdfParam<double>(rotorSDF, "vel_i_gain", param, rotor.pid.IGain());
       rotor.pid.SetIGain(param);
 
-      getSdfParam<double>(rotorSDF, "vel_d_gain", param,  rotor.pid.GetDGain());
+      getSdfParam<double>(rotorSDF, "vel_d_gain", param,  rotor.pid.DGain());
       rotor.pid.SetDGain(param);
 
-      getSdfParam<double>(rotorSDF, "vel_i_max", param, rotor.pid.GetIMax());
+      getSdfParam<double>(rotorSDF, "vel_i_max", param, rotor.pid.IMax());
       rotor.pid.SetIMax(param);
 
-      getSdfParam<double>(rotorSDF, "vel_i_min", param, rotor.pid.GetIMin());
+      getSdfParam<double>(rotorSDF, "vel_i_min", param, rotor.pid.IMin());
       rotor.pid.SetIMin(param);
 
       getSdfParam<double>(rotorSDF, "vel_cmd_max", param,
-          rotor.pid.GetCmdMax());
+          rotor.pid.CmdMax());
       rotor.pid.SetCmdMax(param);
 
       getSdfParam<double>(rotorSDF, "vel_cmd_min", param,
-          rotor.pid.GetCmdMin());
+          rotor.pid.CmdMin());
       rotor.pid.SetCmdMin(param);
 
       // set pid initial command
       rotor.pid.SetCmd(0.0);
+
+      // Create joint velocity component if it doesn't exist
+      if (!_ecm.Component<components::JointVelocity>(rotor.jointEntity))
+      {
+        _ecm.CreateComponent(rotor.jointEntity, components::JointVelocity());
+      }
+
+      // Create joint force command component if it doesn't exist
+      if (!_ecm.Component<components::JointForceCmd>(rotor.jointEntity))
+      {
+        _ecm.CreateComponent(rotor.jointEntity,
+                            components::JointForceCmd({0.0}));
+      }
 
       this->dataPtr->rotors.push_back(rotor);
       rotorSDF = rotorSDF->GetNextElement("rotor");
     }
   }
 
-  // Get sensors
+  // Get sensors - find IMU sensor
   std::string imuName;
   getSdfParam<std::string>(_sdf, "imuName", imuName, "imu_sensor");
-  std::string imuScopedName = this->dataPtr->model->GetWorld()->Name()
-      + "::" + this->dataPtr->model->GetScopedName()
-      + "::" + imuName;
-  this->dataPtr->imuSensor = std::dynamic_pointer_cast<sensors::ImuSensor>
-    (sensors::SensorManager::Instance()->GetSensor(imuScopedName));
 
-  if (!this->dataPtr->imuSensor)
+  // Search for IMU sensor entity
+  // The imuName might be a scoped name, so we need to parse it
+  std::string sensorName = imuName;
+  size_t lastSep = imuName.find_last_of("::");
+  if (lastSep != std::string::npos)
   {
-    gzerr << "imu_sensor [" << imuScopedName
-          << "] not found, abort ArduCopter plugin.\n" << "\n";
+    sensorName = imuName.substr(lastSep + 1);
+  }
+
+  // Find IMU by iterating through sensor entities
+  _ecm.Each<components::Imu, components::Name>(
+    [&](const Entity &_entity,
+        const components::Imu *,
+        const components::Name *_name) -> bool
+    {
+      if (_name->Data().find(sensorName) != std::string::npos)
+      {
+        this->dataPtr->imuEntity = _entity;
+        return false; // Stop iteration
+      }
+      return true; // Continue iteration
+    });
+
+  if (this->dataPtr->imuEntity == kNullEntity)
+  {
+    gzerr << "imu_sensor [" << imuName
+          << "] not found, abort Betaflight plugin.\n" << "\n";
     return;
   }
 
   // Controller time control.
-  this->dataPtr->lastControllerUpdateTime = 0;
+  this->dataPtr->lastControllerUpdateTime = std::chrono::steady_clock::duration::zero();
 
-  // Missed update count before we declare arduCopterOnline status false
+  // Missed update count before we declare betaflightOnline status false
   getSdfParam<int>(_sdf, "connectionTimeoutMaxCount",
     this->dataPtr->connectionTimeoutMaxCount, 10);
 
-  // Listen to the update event. This event is broadcast every simulation
-  // iteration.
-  this->dataPtr->updateConnection = event::Events::ConnectWorldUpdateBegin(
-      std::bind(&BetaflightPlugin::OnUpdate, this));
-
-  gzlog << "ArduCopter ready to fly. The force will be with you" << std::endl;
+  gzlog << "Betaflight ready to fly. The force will be with you" << std::endl;
 }
 
 /////////////////////////////////////////////////
-void BetaflightPlugin::OnUpdate()
+void BetaflightPlugin::PreUpdate(const UpdateInfo &_info,
+    EntityComponentManager &_ecm)
 {
-  std::lock_guard<std::mutex> lock(this->dataPtr->mutex);
+  if (_info.paused)
+    return;
 
-  gazebo::common::Time curTime = this->dataPtr->model->GetWorld()->SimTime();
+  this->dataPtr->OnUpdate(_ecm, _info.simTime);
+}
+
+/////////////////////////////////////////////////
+void BetaflightPluginPrivate::OnUpdate(EntityComponentManager &_ecm,
+    const std::chrono::steady_clock::duration &_simTime)
+{
+  std::lock_guard<std::mutex> lock(this->mutex);
 
   // Update the control surfaces and publish the new state.
-  if (curTime > this->dataPtr->lastControllerUpdateTime)
+  if (_simTime > this->lastControllerUpdateTime)
   {
     this->ReceiveMotorCommand();
-    if (this->dataPtr->arduCopterOnline)
+    if (this->betaflightOnline)
     {
-      this->ApplyMotorForces((curTime -
-        this->dataPtr->lastControllerUpdateTime).Double());
-      this->SendState();
+      auto dt = std::chrono::duration<double>(_simTime - this->lastControllerUpdateTime).count();
+      this->ApplyMotorForces(dt, _ecm);
+      this->SendState(_ecm);
     }
   }
 
-  this->dataPtr->lastControllerUpdateTime = curTime;
+  this->lastControllerUpdateTime = _simTime;
 }
 
 /////////////////////////////////////////////////
-void BetaflightPlugin::ResetPIDs()
+void BetaflightPluginPrivate::ResetPIDs()
 {
   // Reset velocity PID for rotors
-  for (size_t i = 0; i < this->dataPtr->rotors.size(); ++i)
+  for (size_t i = 0; i < this->rotors.size(); ++i)
   {
-    this->dataPtr->rotors[i].cmd = 0;
-    // this->dataPtr->rotors[i].pid.Reset();
+    this->rotors[i].cmd = 0;
+    // this->rotors[i].pid.Reset();
   }
 }
 
 /////////////////////////////////////////////////
-void BetaflightPlugin::ApplyMotorForces(const double _dt)
+void BetaflightPluginPrivate::ApplyMotorForces(const double _dt,
+    EntityComponentManager &_ecm)
 {
   // update velocity PID for rotors and apply force to joint
-  for (size_t i = 0; i < this->dataPtr->rotors.size(); ++i)
+  for (size_t i = 0; i < this->rotors.size(); ++i)
   {
-    double velTarget = this->dataPtr->rotors[i].multiplier *
-      this->dataPtr->rotors[i].cmd /
-      this->dataPtr->rotors[i].rotorVelocitySlowdownSim;
-    double vel = this->dataPtr->rotors[i].joint->GetVelocity(0);
+    double velTarget = this->rotors[i].multiplier *
+      this->rotors[i].cmd /
+      this->rotors[i].rotorVelocitySlowdownSim;
+
+    // Get joint velocity
+    auto jointVelComp = _ecm.Component<components::JointVelocity>(
+        this->rotors[i].jointEntity);
+
+    if (!jointVelComp || jointVelComp->Data().empty())
+      continue;
+
+    double vel = jointVelComp->Data()[0];
     double error = vel - velTarget;
-    double force = this->dataPtr->rotors[i].pid.Update(error, _dt);
-    this->dataPtr->rotors[i].joint->SetForce(0, force);
+    // Convert dt to chrono::duration for gz::math::PID
+    std::chrono::duration<double> dt_chrono(_dt);
+    double force = this->rotors[i].pid.Update(error, dt_chrono);
+
+    // Set joint force command
+    _ecm.SetComponentData<components::JointForceCmd>(
+        this->rotors[i].jointEntity, {force});
   }
 }
 
 /////////////////////////////////////////////////
-void BetaflightPlugin::ReceiveMotorCommand()
+void BetaflightPluginPrivate::ReceiveMotorCommand()
 {
-  // Added detection for whether ArduCopter is online or not.
-  // If ArduCopter is detected (receive of fdm packet from someone),
+  // Added detection for whether Betaflight is online or not.
+  // If Betaflight is detected (receive of fdm packet from someone),
   // then socket receive wait time is increased from 1ms to 1 sec
-  // to accomodate network jitter.
-  // If ArduCopter is not detected, receive call blocks for 1ms
+  // to accommodate network jitter.
+  // If Betaflight is not detected, receive call blocks for 1ms
   // on each call.
-  // Once ArduCopter presence is detected, it takes this many
+  // Once Betaflight presence is detected, it takes this many
   // missed receives before declaring the FCS offline.
 
   ServoPacket pkt;
   int waitMs = 1;
-  if (this->dataPtr->arduCopterOnline)
+  if (this->betaflightOnline)
   {
     // increase timeout for receive once we detect a packet from
-    // ArduCopter FCS.
+    // Betaflight FCS.
     waitMs = 1000;
   }
   else
@@ -542,53 +650,51 @@ void BetaflightPlugin::ReceiveMotorCommand()
     // Otherwise skip quickly and do not set control force.
     waitMs = 1;
   }
-  ssize_t recvSize = this->dataPtr->Recv(&pkt, sizeof(ServoPacket), waitMs);
+  ssize_t recvSize = this->Recv(&pkt, sizeof(ServoPacket), waitMs);
   ssize_t expectedPktSize =
-    sizeof(pkt.motorSpeed[0])*this->dataPtr->rotors.size();
+    sizeof(pkt.motorSpeed[0])*this->rotors.size();
   if ((recvSize == -1) || (recvSize < expectedPktSize))
   {
     // didn't receive a packet
-    // gzerr << "no packet\n";
     if (recvSize != -1)
     {
-      gzerr << "received bit size (" << recvSize << ") to small,"
+      gzerr << "received bit size (" << recvSize << ") too small,"
             << " controller expected size (" << expectedPktSize << ").\n";
     }
 
-    gazebo::common::Time::NSleep(100);
-    if (this->dataPtr->arduCopterOnline)
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
+    if (this->betaflightOnline)
     {
-      gzwarn << "Broken ArduCopter connection, count ["
-             << this->dataPtr->connectionTimeoutCount
-             << "/" << this->dataPtr->connectionTimeoutMaxCount
+      gzwarn << "Broken Betaflight connection, count ["
+             << this->connectionTimeoutCount
+             << "/" << this->connectionTimeoutMaxCount
              << "]\n";
-      if (++this->dataPtr->connectionTimeoutCount >
-        this->dataPtr->connectionTimeoutMaxCount)
+      if (++this->connectionTimeoutCount >
+        this->connectionTimeoutMaxCount)
       {
-        this->dataPtr->connectionTimeoutCount = 0;
-        this->dataPtr->arduCopterOnline = false;
-        gzwarn << "Broken ArduCopter connection, resetting motor control.\n";
+        this->connectionTimeoutCount = 0;
+        this->betaflightOnline = false;
+        gzwarn << "Broken Betaflight connection, resetting motor control.\n";
         this->ResetPIDs();
       }
     }
   }
   else
   {
-    if (!this->dataPtr->arduCopterOnline)
+    if (!this->betaflightOnline)
     {
-      gzdbg << "ArduCopter controller online detected.\n";
+      gzdbg << "Betaflight controller online detected.\n";
       // made connection, set some flags
-      this->dataPtr->connectionTimeoutCount = 0;
-      this->dataPtr->arduCopterOnline = true;
+      this->connectionTimeoutCount = 0;
+      this->betaflightOnline = true;
     }
 
     // compute command based on requested motorSpeed
-    for (unsigned i = 0; i < this->dataPtr->rotors.size(); ++i)
+    for (unsigned i = 0; i < this->rotors.size(); ++i)
     {
       if (i < MAX_MOTORS)
       {
-        // std::cout << i << ": " << pkt.motorSpeed[i] << "\n";
-        this->dataPtr->rotors[i].cmd = this->dataPtr->rotors[i].maxRpm *
+        this->rotors[i].cmd = this->rotors[i].maxRpm *
           pkt.motorSpeed[i];
       }
       else
@@ -601,31 +707,37 @@ void BetaflightPlugin::ReceiveMotorCommand()
 }
 
 /////////////////////////////////////////////////
-void BetaflightPlugin::SendState() const
+void BetaflightPluginPrivate::SendState(EntityComponentManager &_ecm) const
 {
   // send_fdm
   fdmPacket pkt;
 
-  pkt.timestamp = this->dataPtr->model->GetWorld()->SimTime().Double();
+  // Get current simulation time
+  // Note: We're using the last update time since we don't have direct access to UpdateInfo here
+  pkt.timestamp = std::chrono::duration<double>(this->lastControllerUpdateTime).count();
 
-  // asssumed that the imu orientation is:
-  //   x forward
-  //   y right
-  //   z down
-
-  // get linear acceleration in body frame
-  ignition::math::Vector3d linearAccel =
-    this->dataPtr->imuSensor->LinearAcceleration();
+  // Get IMU linear acceleration
+  auto accelComp = _ecm.Component<components::LinearAcceleration>(this->imuEntity);
+  if (!accelComp)
+  {
+    gzerr << "Unable to get IMU linear acceleration\n";
+    return;
+  }
+  gz::math::Vector3d linearAccel = accelComp->Data();
 
   // copy to pkt
   pkt.imuLinearAccelerationXYZ[0] = linearAccel.X();
   pkt.imuLinearAccelerationXYZ[1] = linearAccel.Y();
   pkt.imuLinearAccelerationXYZ[2] = linearAccel.Z();
-  // gzerr << "lin accel [" << linearAccel << "]\n";
 
-  // get angular velocity in body frame
-  ignition::math::Vector3d angularVel =
-    this->dataPtr->imuSensor->AngularVelocity();
+  // Get IMU angular velocity
+  auto angularVelComp = _ecm.Component<components::AngularVelocity>(this->imuEntity);
+  if (!angularVelComp)
+  {
+    gzerr << "Unable to get IMU angular velocity\n";
+    return;
+  }
+  gz::math::Vector3d angularVel = angularVelComp->Data();
 
   // copy to pkt
   pkt.imuAngularVelocityRPY[0] = angularVel.X();
@@ -633,35 +745,30 @@ void BetaflightPlugin::SendState() const
   pkt.imuAngularVelocityRPY[2] = angularVel.Z();
 
   // get inertial pose and velocity
-  // position of the quadrotor in world frame
-  // this position is used to calcualte bearing and distance
-  // from starting location, then use that to update gps position.
-  // The algorithm looks something like below (from ardupilot helper
-  // libraries):
-  //   bearing = to_degrees(atan2(position.y, position.x));
-  //   distance = math.sqrt(self.position.x**2 + self.position.y**2)
-  //   (self.latitude, self.longitude) = util.gps_newpos(
-  //    self.home_latitude, self.home_longitude, bearing, distance)
-  // where xyz is in the NED directions.
-  // Gazebo world xyz is assumed to be N, -E, -D, so flip some stuff
-  // around.
-  // orientation of the quadrotor in world NED frame -
-  // assuming the world NED frame has xyz mapped to NED,
-  // imuLink is NED - z down
-
   // gazeboToNED brings us from gazebo model: x-forward, y-right, z-down
   // to the aerospace convention: x-forward, y-left, z-up
-  ignition::math::Pose3d gazeboToNED(0, 0, 0, IGN_PI, 0, 0);
+  gz::math::Pose3d gazeboToNED(0, 0, 0, GZ_PI, 0, 0);
+
+  // Get model world pose
+  auto poseComp = _ecm.Component<components::Pose>(this->modelEntity);
+  if (!poseComp)
+  {
+    gzerr << "Unable to get model pose\n";
+    return;
+  }
+  gz::math::Pose3d modelWorldPose = poseComp->Data();
 
   // model world pose brings us to model, x-forward, y-left, z-up
-  // adding gazeboToNED gets us to the x-forward, y-right, z-down
-  ignition::math::Pose3d worldToModel = gazeboToNED +
-    this->dataPtr->model->WorldPose();
+  // The gazeboToNED rotation transforms from Gazebo to NED frame
+  // Combine the transformations using pose multiplication
+  gz::math::Pose3d worldToModel(
+      gazeboToNED.Pos() + gazeboToNED.Rot().RotateVector(modelWorldPose.Pos()),
+      gazeboToNED.Rot() * modelWorldPose.Rot());
 
   // get transform from world NED to Model frame
-  ignition::math::Pose3d NEDToModel = worldToModel - gazeboToNED;
-
-  // gzerr << "ned to model [" << NEDToModel << "]\n";
+  gz::math::Pose3d NEDToModel(
+      worldToModel.Pos() - gazeboToNED.Pos(),
+      worldToModel.Rot() * gazeboToNED.Rot().Inverse());
 
   // N
   pkt.positionXYZ[0] = NEDToModel.Pos().X();
@@ -679,40 +786,55 @@ void BetaflightPlugin::SendState() const
   pkt.imuOrientationQuat[2] = NEDToModel.Rot().Y();
   pkt.imuOrientationQuat[3] = NEDToModel.Rot().Z();
 
-  // gzdbg << "imu [" << worldToModel.rot.GetAsEuler() << "]\n";
-  // gzdbg << "ned [" << gazeboToNED.rot.GetAsEuler() << "]\n";
-  // gzdbg << "rot [" << NEDToModel.rot.GetAsEuler() << "]\n";
-
-  // Get NED velocity in body frame *
-  // or...
   // Get model velocity in NED frame
-  ignition::math::Vector3d velGazeboWorldFrame =
-    this->dataPtr->model->GetLink()->WorldLinearVel();
-  ignition::math::Vector3d velNEDFrame =
+  auto velComp = _ecm.Component<components::WorldLinearVelocity>(this->modelLinkEntity);
+  if (!velComp)
+  {
+    gzerr << "Unable to get model velocity\n";
+    return;
+  }
+
+  gz::math::Vector3d velGazeboWorldFrame = velComp->Data();
+  gz::math::Vector3d velNEDFrame =
     gazeboToNED.Rot().RotateVectorReverse(velGazeboWorldFrame);
   pkt.velocityXYZ[0] = velNEDFrame.X();
   pkt.velocityXYZ[1] = velNEDFrame.Y();
   pkt.velocityXYZ[2] = velNEDFrame.Z();
 
   // Emulate ESC Sensor
-  
   pkt.escTemperature[4] = {};
   pkt.escVoltage[4] = {};
-  pkt.escCurrent[4]  = {}; 
+  pkt.escCurrent[4]  = {};
   pkt.escConsumption[4] = {};
 
-  for (size_t i = 0; i < this->dataPtr->rotors.size(); ++i)
+  for (size_t i = 0; i < this->rotors.size(); ++i)
   {
-	  //Angular velocity is returned in rad/s
-    pkt.escRpm[i] = this->dataPtr->rotors[i].joint->GetVelocity(0);// * RADSEC2RPM; 
-	//gzdbg << "GZ Motor " << i << " RPM " << pkt.escRpm[i] << "\n";
+    auto jointVelComp = _ecm.Component<components::JointVelocity>(
+        this->rotors[i].jointEntity);
+
+    if (jointVelComp && !jointVelComp->Data().empty())
+    {
+      // Angular velocity is returned in rad/s
+      pkt.escRpm[i] = jointVelComp->Data()[0];
+    }
+    else
+    {
+      pkt.escRpm[i] = 0.0;
+    }
   }
 
   struct sockaddr_in sockaddr;
-  this->dataPtr->MakeSockAddr("127.0.0.1", 9003, sockaddr);
+  this->MakeSockAddr("127.0.0.1", 9003, sockaddr);
 
-  ::sendto(this->dataPtr->handle,
+  ::sendto(this->handle,
            reinterpret_cast<raw_type *>(&pkt),
            sizeof(pkt), 0,
            (struct sockaddr *)&sockaddr, sizeof(sockaddr));
 }
+
+GZ_ADD_PLUGIN(BetaflightPlugin,
+              System,
+              BetaflightPlugin::ISystemConfigure,
+              BetaflightPlugin::ISystemPreUpdate)
+
+GZ_ADD_PLUGIN_ALIAS(BetaflightPlugin, "gz::sim::systems::BetaflightPlugin")
