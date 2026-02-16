@@ -1,5 +1,5 @@
 <?xml version='1.0'?>
-<sdf version="1.6">
+<sdf version="1.9">
   <model name="iris_demo">
     <include>
       <uri>model://betaloop_iris_with_standoffs</uri>
@@ -382,7 +382,7 @@
     -->
 
     <!-- plugins -->
-    <plugin name="rotor_0_blade_1" filename="libLiftDragPlugin.so">
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <a0>0.1</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
@@ -396,9 +396,9 @@
       <cp>0.084 0 0</cp>
       <forward>0 1 0</forward>
       <upward>0 0 1</upward>
-      <link_name>iris::rotor_0</link_name>
+      <link_name>iris_demo::iris::rotor_0</link_name>
     </plugin>
-    <plugin name="rotor_0_blade_2" filename="libLiftDragPlugin.so">
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <a0>0.1</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
@@ -412,10 +412,10 @@
       <cp>-0.084 0 0</cp>
       <forward>0 -1 0</forward>
       <upward>0 0 1</upward>
-      <link_name>iris::rotor_0</link_name>
+      <link_name>iris_demo::iris::rotor_0</link_name>
     </plugin>
 
-    <plugin name="rotor_1_blade_1" filename="libLiftDragPlugin.so">
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <a0>0.1</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
@@ -429,9 +429,9 @@
       <cp>0.084 0 0</cp>
       <forward>0 1 0</forward>
       <upward>0 0 1</upward>
-      <link_name>iris::rotor_1</link_name>
+      <link_name>iris_demo::iris::rotor_1</link_name>
     </plugin>
-    <plugin name="rotor_1_blade_2" filename="libLiftDragPlugin.so">
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <a0>0.1</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
@@ -445,10 +445,10 @@
       <cp>-0.084 0 0</cp>
       <forward>0 -1 0</forward>
       <upward>0 0 1</upward>
-      <link_name>iris::rotor_1</link_name>
+      <link_name>iris_demo::iris::rotor_1</link_name>
     </plugin>
 
-    <plugin name="rotor_2_blade_1" filename="libLiftDragPlugin.so">
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <a0>0.1</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
@@ -462,9 +462,9 @@
       <cp>0.084 0 0</cp>
       <forward>0 -1 0</forward>
       <upward>0 0 1</upward>
-      <link_name>iris::rotor_2</link_name>
+      <link_name>iris_demo::iris::rotor_2</link_name>
     </plugin>
-    <plugin name="rotor_2_blade_2" filename="libLiftDragPlugin.so">
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <a0>0.1</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
@@ -478,10 +478,10 @@
       <cp>-0.084 0 0</cp>
       <forward>0 1 0</forward>
       <upward>0 0 1</upward>
-      <link_name>iris::rotor_2</link_name>
+      <link_name>iris_demo::iris::rotor_2</link_name>
     </plugin>
 
-    <plugin name="rotor_3_blade_1" filename="libLiftDragPlugin.so">
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <a0>0.1</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
@@ -495,9 +495,9 @@
       <cp>0.084 0 0</cp>
       <forward>0 -1 0</forward>
       <upward>0 0 1</upward>
-      <link_name>iris::rotor_3</link_name>
+      <link_name>iris_demo::iris::rotor_3</link_name>
     </plugin>
-    <plugin name="rotor_3_blade_2" filename="libLiftDragPlugin.so">
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <a0>0.1</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
@@ -511,9 +511,9 @@
       <cp>-0.084 0 0</cp>
       <forward>0 1 0</forward>
       <upward>0 0 1</upward>
-      <link_name>iris::rotor_3</link_name>
+      <link_name>iris_demo::iris::rotor_3</link_name>
     </plugin>
-    <plugin name="betaflight_plugin" filename="libBetaflightPlugin.so">
+    <plugin name="gz::sim::systems::BetaflightPlugin" filename="BetaflightPlugin">
       <imuName>iris_demo::iris::iris/imu_link::imu_sensor</imuName>
       <connectionTimeoutMaxCount>5</connectionTimeoutMaxCount>
       <rotor id="0">
@@ -524,7 +524,7 @@
         <vel_i_min>0</vel_i_min>
         <vel_cmd_max>2.0</vel_cmd_max>
         <vel_cmd_min>-2.0</vel_cmd_min>
-        <jointName>iris::rotor_0_joint</jointName>
+        <jointName>iris_demo::iris::rotor_0_joint</jointName>
         <turningDirection>ccw</turningDirection>
         <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
       </rotor>
@@ -536,7 +536,7 @@
         <vel_i_min>0</vel_i_min>
         <vel_cmd_max>2.0</vel_cmd_max>
         <vel_cmd_min>-2.0</vel_cmd_min>
-        <jointName>iris::rotor_1_joint</jointName>
+        <jointName>iris_demo::iris::rotor_1_joint</jointName>
         <turningDirection>ccw</turningDirection>
         <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
       </rotor>
@@ -548,7 +548,7 @@
         <vel_i_min>0</vel_i_min>
         <vel_cmd_max>2.0</vel_cmd_max>
         <vel_cmd_min>-2.0</vel_cmd_min>
-        <jointName>iris::rotor_2_joint</jointName>
+        <jointName>iris_demo::iris::rotor_2_joint</jointName>
         <turningDirection>cw</turningDirection>
         <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
       </rotor>
@@ -560,7 +560,7 @@
         <vel_i_min>0</vel_i_min>
         <vel_cmd_max>2.0</vel_cmd_max>
         <vel_cmd_min>-2.0</vel_cmd_min>
-        <jointName>iris::rotor_3_joint</jointName>
+        <jointName>iris_demo::iris::rotor_3_joint</jointName>
         <turningDirection>cw</turningDirection>
         <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
       </rotor>

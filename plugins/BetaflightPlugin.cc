@@ -375,6 +375,10 @@ void BetaflightPlugin::Configure(const Entity &_entity,
   // Get the canonical link - first link in the model
   this->dataPtr->modelLinkEntity = this->dataPtr->model.CanonicalLink(_ecm);
 
+  // Enable velocity component for the canonical link
+  _ecm.CreateComponent(this->dataPtr->modelLinkEntity,
+                       components::WorldLinearVelocity());
+
   // per rotor
   if (_sdf->HasElement("rotor"))
   {

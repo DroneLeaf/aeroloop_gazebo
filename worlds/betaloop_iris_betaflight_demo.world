@@ -2,55 +2,21 @@
 
 <!--
 
-To run this demo, you must have following arducopter repo checked out:
+To run this demo with Betaflight SITL:
 
-$ git clone https://github.com/hsu/ardupilot.git -b gazebo_sitl
-
-Add correct path
-
-$ export PATH=$PATH:[path to ardupilot]/ArduCopter
-$ export PATH=$PATH:[path to ardupilot]/Tools/autotest
-
-Make sure you have the right compiler if you are compiling for ARM based platforms
-$ export PATH=/opt/gcc-arm-none-eabi-4_7-2014q2/bin:$PATH
+Compile Betaflight SITL from https://github.com/betaflight/betaflight
 
 To start simulation, first run gazebo:
 
-$ gazebo worlds/iris_arducopter_demo.world
+$ ./start_gazebo.sh betaloop_iris_betaflight_demo.world
 
-Start ArduCopter controller by running script below in a separate terminal:
+Start Betaflight SITL controller in a separate terminal:
 
-$ sim_vehicle.sh -j 4 -f Gazebo -S 100
+$ cd ../betaflight
+$ ./obj/main/betaflight_SITL.elf
 
-Note the speed up (-S) is set to a large number, as long as this number
-is higher than simulation RTF we are ok. This is becuase simulation
-is blocking and waiting for ArduCopter, but ArduCopter is not waiting
-for anyone.
-
-This will start mavproxy, easiest way to start flying is to first skip arming
-checks (e.g. RC calibration, etc.). And increase Failsafe EKF threshold to
-account for simulation errors:
-
-STABILIZE> arm uncheck all
-STABILIZE> param set FS_EKF_THRESH 1
-
-Takeoff:
-
-STABILIZE> mode LOITER
-LOITER> rc 3 1500
-LOITER> arm throttle
-LOITER> takeoff 10
-
-Or you can then do the usual mavprox commands within mavproxy shell:
-
-STABILIZE> mode STABILIZE
-STABILIZE> arm throttle
-
-Option to connect a joystick:
-
-STABILIZE> module load joystick
-
-to fly iris with a ps2 joystick.
+The Betaflight SITL will connect to Gazebo via UDP ports 9002 (motor commands)
+and 9003 (state data). Use the Betaflight Configurator to arm and control the drone.
 
 -->
 <sdf version="1.6">

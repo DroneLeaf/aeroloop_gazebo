@@ -10,4 +10,4 @@ developing realistic and accurate aircraft models.
 
 
 # Supported Aircraft
-1. [Iris Quadcopter](http://www.arducopter.co.uk/iris-quadcopter-uav.html)
+1. [Iris Quadcopter](https://www.3dr.com/support/articles/iris/)

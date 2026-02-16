@@ -1,5 +1,5 @@
 <?xml version='1.0'?>
-<sdf version='1.6'>
+<sdf version='1.9'>
 
 	
   <model name='quadcopter_model'>
@@ -58,9 +58,9 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <name>Gazebo/OrangeTransparent</name>
-          </script>
+          <ambient>1 0.5 0 0.8</ambient>
+          <diffuse>1 0.5 0 0.8</diffuse>
+          <specular>0.2 0.1 0 1</specular>
         </material>
       </visual>
     </link>
@@ -93,7 +93,6 @@
         <dynamics>
           <damping>1.0</damping>
         </dynamics>
-        <use_parent_model_frame>1</use_parent_model_frame>
       </axis>
       <physics>
         <ode>
@@ -154,7 +153,6 @@
         <dynamics>
           <damping>1.0</damping>
         </dynamics>
-        <use_parent_model_frame>1</use_parent_model_frame>
       </axis>
       <physics>
         <ode>
@@ -202,10 +200,9 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <name>Gazebo/Blue</name>
-            <uri>__default__</uri>
-          </script>
+          <ambient>0 0 0.8 1</ambient>
+          <diffuse>0 0 0.8 1</diffuse>
+          <specular>0.1 0.1 0.3 1</specular>
         </material>
       </visual>
       <gravity>1</gravity>
@@ -224,7 +221,6 @@
         <dynamics>
           <damping>0.004</damping>
         </dynamics>
-        <use_parent_model_frame>1</use_parent_model_frame>
       </axis>
       <physics>
         <ode>
@@ -272,10 +268,9 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <name>Gazebo/DarkGrey</name>
-            <uri>__default__</uri>
-          </script>
+          <ambient>0.3 0.3 0.3 1</ambient>
+          <diffuse>0.3 0.3 0.3 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
         </material>
       </visual>
       <gravity>1</gravity>
@@ -294,7 +289,6 @@
         <dynamics>
           <damping>0.004</damping>
         </dynamics>
-        <use_parent_model_frame>1</use_parent_model_frame>
       </axis>
       <physics>
         <ode>
@@ -342,10 +336,9 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <name>Gazebo/Blue</name>
-            <uri>__default__</uri>
-          </script>
+          <ambient>0 0 0.8 1</ambient>
+          <diffuse>0 0 0.8 1</diffuse>
+          <specular>0.1 0.1 0.3 1</specular>
         </material>
       </visual>
       <gravity>1</gravity>
@@ -364,7 +357,6 @@
         <dynamics>
           <damping>0.004</damping>
         </dynamics>
-        <use_parent_model_frame>1</use_parent_model_frame>
       </axis>
       <physics>
         <ode>
@@ -412,10 +404,9 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <name>Gazebo/DarkGrey</name>
-            <uri>__default__</uri>
-          </script>
+          <ambient>0.3 0.3 0.3 1</ambient>
+          <diffuse>0.3 0.3 0.3 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
         </material>
       </visual>
       <gravity>1</gravity>
@@ -434,7 +425,6 @@
         <dynamics>
           <damping>0.004</damping>
         </dynamics>
-        <use_parent_model_frame>1</use_parent_model_frame>
       </axis>
       <physics>
         <ode>
@@ -442,6 +432,194 @@
         </ode>
       </physics>
     </joint>
+
+    <!-- Lift/Drag plugins for rotor aerodynamics -->
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.1</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.2</area>
+      <air_density>1.2041</air_density>
+      <cp>0.084 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_0</link_name>
+    </plugin>
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.1</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.2</area>
+      <air_density>1.2041</air_density>
+      <cp>-0.084 0 0</cp>
+      <forward>0 -1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_0</link_name>
+    </plugin>
+
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.1</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.2</area>
+      <air_density>1.2041</air_density>
+      <cp>0.084 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_1</link_name>
+    </plugin>
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.1</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.2</area>
+      <air_density>1.2041</air_density>
+      <cp>-0.084 0 0</cp>
+      <forward>0 -1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_1</link_name>
+    </plugin>
+
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.1</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.2</area>
+      <air_density>1.2041</air_density>
+      <cp>0.084 0 0</cp>
+      <forward>0 -1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_2</link_name>
+    </plugin>
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.1</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.2</area>
+      <air_density>1.2041</air_density>
+      <cp>-0.084 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_2</link_name>
+    </plugin>
+
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.1</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.2</area>
+      <air_density>1.2041</air_density>
+      <cp>0.084 0 0</cp>
+      <forward>0 -1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_3</link_name>
+    </plugin>
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.1</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.2</area>
+      <air_density>1.2041</air_density>
+      <cp>-0.084 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_3</link_name>
+    </plugin>
+
+    <!-- Betaflight SITL plugin -->
+    <plugin name="gz::sim::systems::BetaflightPlugin" filename="BetaflightPlugin">
+      <imuName>quadcopter_model/imu_link::imu_sensor</imuName>
+      <connectionTimeoutMaxCount>5</connectionTimeoutMaxCount>
+      <rotor id="0">
+        <vel_p_gain>0.01</vel_p_gain>
+        <vel_i_gain>0</vel_i_gain>
+        <vel_d_gain>0</vel_d_gain>
+        <vel_i_max>0</vel_i_max>
+        <vel_i_min>0</vel_i_min>
+        <vel_cmd_max>2.0</vel_cmd_max>
+        <vel_cmd_min>-2.0</vel_cmd_min>
+        <jointName>rotor_0_joint</jointName>
+        <turningDirection>ccw</turningDirection>
+        <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
+      </rotor>
+      <rotor id="1">
+        <vel_p_gain>0.01</vel_p_gain>
+        <vel_i_gain>0</vel_i_gain>
+        <vel_d_gain>0</vel_d_gain>
+        <vel_i_max>0</vel_i_max>
+        <vel_i_min>0</vel_i_min>
+        <vel_cmd_max>2.0</vel_cmd_max>
+        <vel_cmd_min>-2.0</vel_cmd_min>
+        <jointName>rotor_1_joint</jointName>
+        <turningDirection>ccw</turningDirection>
+        <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
+      </rotor>
+      <rotor id="2">
+        <vel_p_gain>0.01</vel_p_gain>
+        <vel_i_gain>0</vel_i_gain>
+        <vel_d_gain>0</vel_d_gain>
+        <vel_i_max>0</vel_i_max>
+        <vel_i_min>0</vel_i_min>
+        <vel_cmd_max>2.0</vel_cmd_max>
+        <vel_cmd_min>-2.0</vel_cmd_min>
+        <jointName>rotor_2_joint</jointName>
+        <turningDirection>cw</turningDirection>
+        <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
+      </rotor>
+      <rotor id="3">
+        <vel_p_gain>0.01</vel_p_gain>
+        <vel_i_gain>0</vel_i_gain>
+        <vel_d_gain>0</vel_d_gain>
+        <vel_i_max>0</vel_i_max>
+        <vel_i_min>0</vel_i_min>
+        <vel_cmd_max>2.0</vel_cmd_max>
+        <vel_cmd_min>-2.0</vel_cmd_min>
+        <jointName>rotor_3_joint</jointName>
+        <turningDirection>cw</turningDirection>
+        <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
+      </rotor>
+    </plugin>
+
     <static>0</static>
   </model>
 </sdf>
