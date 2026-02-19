@@ -61,6 +61,7 @@ typedef SSIZE_T ssize_t;
 #include <gz/sim/components/Name.hh>
 #include <gz/sim/components/Pose.hh>
 #include <gz/sim/components/Sensor.hh>
+#include <gz/sim/components/SphericalCoordinates.hh>
 #include <gz/plugin/Register.hh>
 
 #include "BetaflightPlugin.hh"
@@ -123,10 +124,12 @@ struct fdmPacket
   /// \brief IMU quaternion orientation
   double imuOrientationQuat[4];
 
-  /// \brief Model velocity in NED frame
+  /// \brief Model velocity: NED frame, or ENU (East,North,Up) when
+  ///        spherical coordinates are configured (virtual GPS mode)
   double velocityXYZ[3];
 
-  /// \brief Model position in NED frame
+  /// \brief Model position: NED frame, or (lon_deg,lat_deg,alt_m) when
+  ///        spherical coordinates are configured (virtual GPS mode)
   double positionXYZ[3];
 
   double escTemperature[4];
@@ -382,9 +385,9 @@ void BetaflightPlugin::Configure(const Entity &_entity,
   // per rotor
   if (_sdf->HasElement("rotor"))
   {
-    // Cast away const to call GetElement and Clone
+    // Cast away const to call GetElement
     auto sdfNonConst = std::const_pointer_cast<sdf::Element>(_sdf);
-    sdf::ElementPtr rotorSDF = sdfNonConst->GetElement("rotor")->Clone();
+    sdf::ElementPtr rotorSDF = sdfNonConst->GetElement("rotor");
 
     while (rotorSDF)
     {
@@ -610,14 +613,13 @@ void BetaflightPluginPrivate::ApplyMotorForces(const double _dt,
       this->rotors[i].cmd /
       this->rotors[i].rotorVelocitySlowdownSim;
 
-    // Get joint velocity
+    // Get joint velocity (treat missing/empty data as zero velocity)
+    double vel = 0.0;
     auto jointVelComp = _ecm.Component<components::JointVelocity>(
         this->rotors[i].jointEntity);
 
-    if (!jointVelComp || jointVelComp->Data().empty())
-      continue;
-
-    double vel = jointVelComp->Data()[0];
+    if (jointVelComp && !jointVelComp->Data().empty())
+      vel = jointVelComp->Data()[0];
     double error = vel - velTarget;
     // Convert dt to chrono::duration for gz::math::PID
     std::chrono::duration<double> dt_chrono(_dt);
@@ -804,6 +806,32 @@ void BetaflightPluginPrivate::SendState(EntityComponentManager &_ecm) const
   pkt.velocityXYZ[0] = velNEDFrame.X();
   pkt.velocityXYZ[1] = velNEDFrame.Y();
   pkt.velocityXYZ[2] = velNEDFrame.Z();
+
+  // Virtual GPS: convert local position to lat/lon/alt when spherical
+  // coordinates are configured in the world SDF. Also send velocity in
+  // ENU frame as expected by Betaflight's virtual GPS mode.
+  auto worldEnt = worldEntity(_ecm);
+  auto scComp = _ecm.Component<components::SphericalCoordinates>(worldEnt);
+  if (scComp)
+  {
+    const auto &sc = scComp->Data();
+
+    // Convert local ENU position to lat/lon/alt
+    gz::math::Vector3d latLonAlt =
+        sc.SphericalFromLocalPosition(modelWorldPose.Pos());
+
+    // Betaflight expects: [0]=longitude_deg, [1]=latitude_deg, [2]=altitude_m
+    // SphericalFromLocalPosition returns degrees in gz-math7+
+    pkt.positionXYZ[0] = latLonAlt.Y();  // longitude in degrees
+    pkt.positionXYZ[1] = latLonAlt.X();  // latitude in degrees
+    pkt.positionXYZ[2] = latLonAlt.Z();            // altitude in meters
+
+    // Betaflight expects ENU: [0]=East, [1]=North, [2]=Up
+    // Gazebo world frame is already ENU, so use raw velocity
+    pkt.velocityXYZ[0] = velGazeboWorldFrame.X();  // East  (m/s)
+    pkt.velocityXYZ[1] = velGazeboWorldFrame.Y();  // North (m/s)
+    pkt.velocityXYZ[2] = velGazeboWorldFrame.Z();  // Up    (m/s)
+  }
 
   // Emulate ESC Sensor
   pkt.escTemperature[4] = {};

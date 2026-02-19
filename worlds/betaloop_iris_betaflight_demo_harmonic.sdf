@@ -1,10 +1,20 @@
 <?xml version="1.0" ?>
 <sdf version="1.9">
   <world name="betaloop_demo">
+    <!-- World origin: Pittsburgh area, near test waypoints -->
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>40.46350</latitude_deg>
+      <longitude_deg>-79.51825</longitude_deg>
+      <elevation>0</elevation>
+      <heading_deg>0</heading_deg>
+    </spherical_coordinates>
+
     <!-- Physics settings -->
     <physics name="fast" type="ignored">
-      <real_time_factor>1</real_time_factor>
-      <max_step_size>0.0025</max_step_size>
+      <real_time_factor>0</real_time_factor>
+      <max_step_size>0.004</max_step_size>
     </physics>
 
     <!-- Required system plugins -->
