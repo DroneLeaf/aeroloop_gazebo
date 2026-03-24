@@ -37,6 +37,7 @@
 typedef SSIZE_T ssize_t;
 #endif
 
+#include <cmath>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -131,6 +132,9 @@ struct fdmPacket
   /// \brief Model position: NED frame, or (lon_deg,lat_deg,alt_m) when
   ///        spherical coordinates are configured (virtual GPS mode)
   double positionXYZ[3];
+
+  /// \brief Barometric pressure in Pascals (must match BF fdm_packet layout)
+  double pressure;
 
   double escTemperature[4];
   double escVoltage[4];
@@ -832,6 +836,11 @@ void BetaflightPluginPrivate::SendState(EntityComponentManager &_ecm) const
     pkt.velocityXYZ[1] = velGazeboWorldFrame.Y();  // North (m/s)
     pkt.velocityXYZ[2] = velGazeboWorldFrame.Z();  // Up    (m/s)
   }
+
+  // Barometric pressure from altitude (ISA model)
+  // Gazebo Z is ENU "up", so modelWorldPose.Pos().Z() = altitude in meters
+  const double altitude = modelWorldPose.Pos().Z();
+  pkt.pressure = 101325.0 * pow(1.0 - 2.25577e-5 * altitude, 5.25588);
 
   // Emulate ESC Sensor
   pkt.escTemperature[4] = {};
