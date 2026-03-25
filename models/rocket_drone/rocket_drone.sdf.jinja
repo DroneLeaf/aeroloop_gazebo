@@ -49,6 +49,42 @@
           </script>
         </material>
       </visual>
+      <!-- FPV camera sensor (30 degrees below horizon) -->
+      <sensor name='fpv_cam' type='camera'>
+        <pose>0 0 0.262 0 -0.523599 0</pose>
+        <camera>
+          <horizontal_fov>2.0</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>15000</far>
+          </clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+        <visualize>1</visualize>
+      </sensor>
+      <!-- Chase camera sensor (third-person follow view) -->
+      <sensor name='chase_cam' type='camera'>
+        <pose>-1.5 0 0.8 0 0.5236 0</pose>
+        <camera>
+          <horizontal_fov>1.4</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <far>15000</far>
+          </clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+        <visualize>0</visualize>
+      </sensor>
       <gravity>1</gravity>
       <velocity_decay/>
     </link>
@@ -536,38 +572,5 @@
       </rotor>
     </plugin>
     <static>0</static>
-    <link name='camera_link'>
-      <pose>0 0 0.262 0 -1.570796 0</pose>
-      <inertial>
-        <mass>0.015</mass>
-        <inertia>
-          <ixx>1e-05</ixx> <iyy>1e-05</iyy> <izz>1e-05</izz>
-        </inertia>
-      </inertial>
-      <sensor name='camera' type='camera'>
-        <camera name='__default__'>
-          <horizontal_fov>1.047</horizontal_fov>
-          <image><width>640</width><height>480</height></image>
-          <clip><near>0.1</near><far>20000</far></clip>
-        </camera>
-        <always_on>1</always_on>
-        <update_rate>30</update_rate>
-        <visualize>1</visualize>
-        <plugin name='camera_plugin' filename='libgazebo_ros_camera.so'>
-          <alwaysOn>true</alwaysOn>
-          <imageTopicName>image_raw</imageTopicName>
-          <cameraName>upward_camera</cameraName>
-          <frameName>camera_link</frameName>
-        </plugin>
-        <plugin name="GstCameraPlugin" filename="libgazebo_gst_camera_plugin.so">
-          <robotNamespace></robotNamespace>
-          <udpPort>5600</udpPort>
-        </plugin>
-      </sensor>
-    </link>
-    <joint name='camera_joint' type='fixed'>
-      <child>camera_link</child>
-      <parent>base_link</parent>
-    </joint>
   </model>
 </sdf>
