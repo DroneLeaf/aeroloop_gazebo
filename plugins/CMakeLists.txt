@@ -16,3 +16,15 @@ target_link_libraries(BetaflightPlugin
     gz-plugin2::gz-plugin2
     gz-math7::gz-math7
 )
+
+# Image bridge: subscribes to a Gazebo camera topic and writes raw frames to stdout
+find_package(gz-transport13 REQUIRED)
+find_package(gz-msgs10 REQUIRED)
+
+add_executable(gz_image_bridge gz_image_bridge.cc)
+set_property(TARGET gz_image_bridge PROPERTY CXX_STANDARD 17)
+target_link_libraries(gz_image_bridge
+  PRIVATE
+    gz-transport13::gz-transport13
+    gz-msgs10::gz-msgs10
+)
