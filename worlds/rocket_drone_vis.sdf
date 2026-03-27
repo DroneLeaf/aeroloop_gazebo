@@ -1,8 +1,9 @@
 <?xml version="1.0" ?>
 <!--
   Visualization-only world for rocket_drone with Simulink dynamics backend.
-  Gazebo renders only — no physics, no IMU, no BetaflightPlugin.
+  Gazebo renders only — physics engine present for WorldPoseCmd + JointVelocityCmd.
   Drone pose is driven externally via ExternalPosePlugin (UDP 9010).
+  Rotor spinning driven by RotorVisualPlugin (UDP 9012).
 -->
 <sdf version="1.9">
   <world name="default">
@@ -12,7 +13,7 @@
       <real_time_factor>1.0</real_time_factor>
     </physics>
 
-    <!-- World-level plugins: physics needed for WorldPoseCmd + JointController -->
+    <!-- World-level plugins: physics needed for WorldPoseCmd + JointVelocityCmd -->
     <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics">
     </plugin>
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
@@ -171,9 +172,16 @@
           </material>
         </visual>
       </link>
-      <joint name="rotor_0_joint" type="fixed">
+      <joint name="rotor_0_joint" type="revolute">
         <child>rotor_0</child>
         <parent>base_link</parent>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>-1e+16</lower>
+            <upper>1e+16</upper>
+          </limit>
+        </axis>
       </joint>
 
       <!-- Rotor 1: rear-left (CW) — fixed joint, visual only -->
@@ -202,9 +210,16 @@
           </material>
         </visual>
       </link>
-      <joint name="rotor_1_joint" type="fixed">
+      <joint name="rotor_1_joint" type="revolute">
         <child>rotor_1</child>
         <parent>base_link</parent>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>-1e+16</lower>
+            <upper>1e+16</upper>
+          </limit>
+        </axis>
       </joint>
 
       <!-- Rotor 2: front-left (CCW) — fixed joint, visual only -->
@@ -233,9 +248,16 @@
           </material>
         </visual>
       </link>
-      <joint name="rotor_2_joint" type="fixed">
+      <joint name="rotor_2_joint" type="revolute">
         <child>rotor_2</child>
         <parent>base_link</parent>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>-1e+16</lower>
+            <upper>1e+16</upper>
+          </limit>
+        </axis>
       </joint>
 
       <!-- Rotor 3: rear-right (CCW) — fixed joint, visual only -->
@@ -264,14 +286,32 @@
           </material>
         </visual>
       </link>
-      <joint name="rotor_3_joint" type="fixed">
+      <joint name="rotor_3_joint" type="revolute">
         <child>rotor_3</child>
         <parent>base_link</parent>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>-1e+16</lower>
+            <upper>1e+16</upper>
+          </limit>
+        </axis>
       </joint>
 
       <!-- ExternalPosePlugin: receives VisualPose from bf_sim_bridge on UDP 9010 -->
       <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
         <listen_port>9010</listen_port>
+      </plugin>
+
+      <!-- RotorVisualPlugin: spins rotors based on motor commands from bf_sim_bridge -->
+      <plugin filename="RotorVisualPlugin" name="gz::sim::systems::RotorVisualPlugin">
+        <listen_port>9012</listen_port>
+        <max_velocity>100.0</max_velocity>
+        <!-- CW rotors: -1, CCW rotors: +1 -->
+        <spin_dir_0>-1</spin_dir_0>
+        <spin_dir_1>-1</spin_dir_1>
+        <spin_dir_2>1</spin_dir_2>
+        <spin_dir_3>1</spin_dir_3>
       </plugin>
     </model>
 

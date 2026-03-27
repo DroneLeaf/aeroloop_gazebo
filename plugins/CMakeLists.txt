@@ -26,6 +26,15 @@ target_link_libraries(ExternalPosePlugin
     gz-math7::gz-math7
 )
 
+add_library(RotorVisualPlugin SHARED RotorVisualPlugin.cc)
+set_property(TARGET RotorVisualPlugin PROPERTY CXX_STANDARD 17)
+target_link_libraries(RotorVisualPlugin
+  PRIVATE
+    gz-sim8::gz-sim8
+    gz-plugin2::gz-plugin2
+    gz-math7::gz-math7
+)
+
 # Image bridge: subscribes to a Gazebo camera topic and writes raw frames to stdout
 find_package(gz-transport13 REQUIRED)
 find_package(gz-msgs10 REQUIRED)
