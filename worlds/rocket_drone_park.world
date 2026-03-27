@@ -1,0 +1,332 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <world name="default">
+    <physics name="realtime" type="ignored">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu">
+    </plugin>
+
+    <scene>
+      <sky>
+        <clouds>
+          <speed>5</speed>
+          <humidity>0.6</humidity>
+          <mean_size>0.5</mean_size>
+        </clouds>
+      </sky>
+      <background>0.7 0.7 0.7 1</background>
+      <shadows>true</shadows>
+    </scene>
+
+    <light name="sun" type="directional">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- <model name="grass_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>1000 1000</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>100</mu>
+                <mu2>50</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <cast_shadows>false</cast_shadows>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>1000 1000</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.1 0.5 0.1 1</ambient>
+            <diffuse>0.1 0.5 0.1 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model> -->
+
+    <!-- Rocket drone vehicle -->
+    <include>
+      <uri>model://rocket_drone</uri>
+      <name>betaflight_vehicle</name>
+      <pose>0 0 1 0 0 0</pose>
+    </include>
+
+    <include>
+      <uri>
+      model://baylands_terrain</uri>
+      <name>baylands_terrain</name>
+      <pose>150 130 0 0 0 0</pose>
+    </include>
+
+    <!-- <include>
+      <uri>
+      https://fuel.gazebosim.org/1.0/OpenRobotics/models/nathan_benderson_park
+      </uri>
+    </include> -->
+
+    <!-- <include>
+      <uri>model://Plane</uri>
+      <name>ground_plane</name>
+      <pose>0 0 0 0 0 0</pose>
+    </include> -->
+    <!-- Moving geranium target: revolves around orbit_center in a circle with a zigzag -->
+    <model name="shahed_drone">
+      <static>false</static>
+      <pose>0 0 20 0 0 0</pose>
+
+      <link name="orbit_center">
+        <gravity>false</gravity>
+        <inertial>
+          <mass>0.1</mass>
+          <inertia>
+            <ixx>0.0001</ixx>
+            <iyy>0.0001</iyy>
+            <izz>0.0001</izz>
+          </inertia>
+        </inertial>
+      </link>
+
+      <joint name="world_anchor" type="fixed">
+        <parent>world</parent>
+        <child>orbit_center</child>
+      </joint>
+
+      <!-- Invisible arm that handles the main 40m circle -->
+      <link name="arm_link">
+        <pose relative_to="orbit_center">40 0 0 0 0 0</pose>
+        <gravity>false</gravity>
+        <inertial>
+          <mass>0.1</mass>
+          <inertia>
+            <ixx>0.0001</ixx>
+            <iyy>0.0001</iyy>
+            <izz>0.0001</izz>
+          </inertia>
+        </inertial>
+      </link>
+
+      <joint name="orbit_joint" type="revolute">
+        <pose relative_to="orbit_center">0 0 0 0 0 0</pose>
+        <parent>orbit_center</parent>
+        <child>arm_link</child>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <use_parent_model_frame>1</use_parent_model_frame>
+        </axis>
+      </joint>
+
+      <!-- Crank that spins rapidly to create the zigzag offset -->
+      <link name="crank_link">
+        <pose relative_to="arm_link">0 0 0 0 0 0</pose>
+        <gravity>false</gravity>
+        <inertial>
+          <mass>0.1</mass>
+          <inertia>
+            <ixx>0.0001</ixx>
+            <iyy>0.0001</iyy>
+            <izz>0.0001</izz>
+          </inertia>
+        </inertial>
+      </link>
+
+      <joint name="zigzag_joint" type="revolute">
+        <pose relative_to="arm_link">0 0 0 0 0 0</pose>
+        <parent>arm_link</parent>
+        <child>crank_link</child>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <use_parent_model_frame>1</use_parent_model_frame>
+        </axis>
+      </joint>
+
+      <!-- Stabilizer that counter-rotates to strictly face exactly forward -->
+      <link name="drone_stabilizer">
+        <!-- 1.5m amplitude for the zigzag, much smaller than before -->
+        <pose relative_to="crank_link">1.5 0 0 0 0 0</pose>
+        <gravity>false</gravity>
+        <inertial>
+          <mass>0.1</mass>
+          <inertia>
+            <ixx>0.0001</ixx>
+            <iyy>0.0001</iyy>
+            <izz>0.0001</izz>
+          </inertia>
+        </inertial>
+
+          <!-- Positioned 3m behind the drone (-Y) and 0.7m below, looking forward (+Y direction requires ~90deg/1.57rad yaw) -->
+        <sensor name="shahed_chase_cam" type="camera">
+          <pose>0 -3.0 -0.7 0 0.1 1.570796</pose>
+          <camera>
+            <horizontal_fov>1.5</horizontal_fov>
+            <image>
+              <width>1920</width>
+              <height>1080</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>10000</far>
+            </clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>60</update_rate>
+          <visualize>true</visualize>
+          <topic>shahed_chase_cam/image</topic>
+        </sensor>
+      </link>
+
+      <joint name="counter_joint" type="revolute">
+        <pose relative_to="drone_stabilizer">0 0 0 0 0 0</pose>
+        <parent>crank_link</parent>
+        <child>drone_stabilizer</child>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <use_parent_model_frame>1</use_parent_model_frame>
+        </axis>
+      </joint>
+
+      <!-- The drone body, attached via a hinge to allow natural roll (banking) during turns -->
+      <link name="geranium_link">
+        <!-- Hang down by 0.8m so gravity gives it a pendulum effect for banking -->
+        <pose relative_to="drone_stabilizer">0 0 -0.8 0 0 0</pose>
+        <gravity>true</gravity>
+        <inertial>
+          <mass>1.0</mass>
+          <inertia>
+            <ixx>0.02</ixx>
+            <iyy>0.02</iyy>
+            <izz>0.04</izz>
+          </inertia>
+        </inertial>
+        <visual name="visual">
+          <pose>0 0 0 1.57079 0 3.14159</pose>
+          <geometry>
+            <mesh>
+              <uri>model://shahed_drone/meshes/shahed.glb</uri>
+              <!-- You might need to adjust the scale later if the object is too big or small -->
+              <scale>1 1 1</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="collision">
+          <pose>0 0 0 1.57079 0 3.14159</pose>
+          <geometry>
+            <mesh>
+              <uri>model://shahed_drone/meshes/shahed.glb</uri>
+              <scale>1 1 1</scale>
+            </mesh>
+          </geometry>
+          <surface>
+            <bounce>
+              <restitution_coefficient>0.1</restitution_coefficient>
+              <threshold>0.0</threshold>
+            </bounce>
+            <friction>
+              <ode>
+                <mu>1.0</mu>
+                <mu2>1.0</mu2>
+              </ode>
+            </friction>
+            <contact>
+              <ode>
+                <kp>100000</kp>
+                <kd>10</kd>
+                <max_vel>1.0</max_vel>
+                <min_depth>0.001</min_depth>
+              </ode>
+            </contact>
+          </surface>
+        </collision>
+        <sensor name="contact_sensor" type="contact">
+          <always_on>true</always_on>
+          <update_rate>50.0</update_rate>
+          <contact>
+            <collision>collision</collision>
+          </contact>
+        </sensor>
+      </link>
+
+      <joint name="roll_joint" type="revolute">
+        <!-- Pivot at the stabilizer link, leaving the drone to hang -->
+        <pose relative_to="drone_stabilizer">0 0 0 0 0 0</pose>
+        <parent>drone_stabilizer</parent>
+        <child>geranium_link</child>
+        <axis>
+          <!-- Forward is Y. So roll/banking axis is Y -->
+          <xyz>0 1 0</xyz>
+          <!-- Hard limits to prevent excessive banking (Left bank limited more heavily) -->
+          <limit>
+            <lower>-0.8</lower>
+            <upper>0.8</upper>
+          </limit>
+          <use_parent_model_frame>1</use_parent_model_frame>
+          <dynamics>
+            <damping>1.5</damping>
+            <friction>0.05</friction>
+            <!-- Spring constantly pulls the drone upright so it fights the centrifugal drift -->
+            <spring_reference>0</spring_reference>
+            <spring_stiffness>12.0</spring_stiffness>
+          </dynamics>
+        </axis>
+      </joint>
+
+      <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
+        <joint_name>orbit_joint</joint_name>
+        <initial_velocity>0.4</initial_velocity>
+      </plugin>
+
+      <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
+        <joint_name>zigzag_joint</joint_name>
+        <initial_velocity>2.5</initial_velocity> 
+      </plugin>
+
+      <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
+        <joint_name>counter_joint</joint_name>
+        <initial_velocity>-2.5</initial_velocity> <!-- exact opposite of zigzag ensures heading stays perfectly forward -->
+      </plugin>
+    </model>
+
+    <gui fullscreen="0">
+      <camera name="user_camera">
+        <pose>-35 0 28 0 0.2 0</pose>
+        <view_controller>orbit</view_controller>
+        <projection_type>perspective</projection_type>
+      </camera>
+    </gui>
+  </world>
+</sdf>
