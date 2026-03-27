@@ -613,6 +613,7 @@ int main(int argc, char **argv)
     }
 
     gz::transport::Node node;
+
     if (!node.Subscribe(topic, onImage))
     {
         fprintf(stderr, "[gz_image_bridge] Failed to subscribe to %s\n",
