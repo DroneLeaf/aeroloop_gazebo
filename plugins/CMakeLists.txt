@@ -27,4 +27,5 @@ target_link_libraries(gz_image_bridge
   PRIVATE
     gz-transport13::gz-transport13
     gz-msgs10::gz-msgs10
+    pthread
 )
