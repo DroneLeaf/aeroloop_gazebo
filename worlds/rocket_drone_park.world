@@ -128,7 +128,7 @@
 
       <!-- Invisible arm that handles the main 40m circle -->
       <link name="arm_link">
-        <pose relative_to="orbit_center">40 0 0 0 0 0</pose>
+        <pose relative_to="orbit_center">20 0 0 0 0 0</pose>
         <gravity>false</gravity>
         <inertial>
           <mass>0.1</mass>
@@ -190,7 +190,7 @@
 
           <!-- Positioned 3m behind the drone (-Y) and 0.7m below, looking forward (+Y direction requires ~90deg/1.57rad yaw) -->
         <sensor name="shahed_chase_cam" type="camera">
-          <pose>0 -3.0 -0.7 0 0.1 1.570796</pose>
+          <pose>0 -6.0 -0.8 0 0.1 1.570796</pose>
           <camera>
             <horizontal_fov>1.5</horizontal_fov>
             <image>
