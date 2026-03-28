@@ -104,7 +104,7 @@
       <name>ground_plane</name>
       <pose>0 0 0 0 0 0</pose>
     </include> -->
-    <!-- Moving geranium target: revolves around orbit_center in a circle with a zigzag -->
+    <!-- Moving target: oval / racetrack-like loop built from two coupled rotations -->
     <model name="shahed_drone">
       <static>false</static>
       <pose>0 0 20 0 0 0</pose>
@@ -126,9 +126,9 @@
         <child>orbit_center</child>
       </joint>
 
-      <!-- Invisible arm that handles the main 40m circle -->
+      <!-- Primary orbit arm (larger radius gives wider sweeping turns) -->
       <link name="arm_link">
-        <pose relative_to="orbit_center">20 0 0 0 0 0</pose>
+        <pose relative_to="orbit_center">30 0 0 0 0 0</pose>
         <gravity>false</gravity>
         <inertial>
           <mass>0.1</mass>
@@ -150,7 +150,7 @@
         </axis>
       </joint>
 
-      <!-- Crank that spins rapidly to create the zigzag offset -->
+      <!-- Secondary crank in opposite direction creates right-left chicane-like curves -->
       <link name="crank_link">
         <pose relative_to="arm_link">0 0 0 0 0 0</pose>
         <gravity>false</gravity>
@@ -174,10 +174,10 @@
         </axis>
       </joint>
 
-      <!-- Stabilizer that counter-rotates to strictly face exactly forward -->
+      <!-- Stabilizer offset controls how pronounced the right-left bends are -->
       <link name="drone_stabilizer">
-        <!-- 1.5m amplitude for the zigzag, much smaller than before -->
-        <pose relative_to="crank_link">1.5 0 0 0 0 0</pose>
+        <!-- 4.5m offset gives F1-style flowing curves without hard braking zones -->
+        <pose relative_to="crank_link">4.5 0 0 0 0 0</pose>
         <gravity>false</gravity>
         <inertial>
           <mass>0.1</mass>
@@ -187,10 +187,26 @@
             <izz>0.0001</izz>
           </inertia>
         </inertial>
-
-          <!-- Positioned 3m behind the drone (-Y) and 0.7m below, looking forward (+Y direction requires ~90deg/1.57rad yaw) -->
+          <!-- bottom-left -->
+          <!-- <pose>-2.0 -2.0 -1.5 0 -0.3 0.7</pose> -->
+          <!-- bottom-right -->
+          <!-- <pose>2.0 -2.0 -1.5 0 -0.3 2.4416</pose> -->
+          <!-- mid-back -->
+          <!-- <pose>0 -3.0 -0.8 0 0 1.570796</pose> -->
+          <!-- mid-left -->
+          <!-- <pose>-2.0 -2.0 -0.8 0 0 0.7</pose> -->
+          <!-- mid-right -->
+          <!-- <pose>2.0 -2.0 -0.8 0 0 2.4416</pose> -->
+          <!-- top-back -->
+          <!-- <pose>0 -3.0 -0.01 0 0.3 1.570796</pose> -->
+          <!-- top-left -->
+          <!-- <pose>-2.0 -2.0 -0.1 0 0.3 0.7</pose> -->
+          <!-- top-right -->
+          <!-- <pose>2.0 -2.0 -0.1 0 0.3 2.4416</pose> -->
         <sensor name="shahed_chase_cam" type="camera">
-          <pose>0 -6.0 -0.8 0 0.1 1.570796</pose>
+         <!-- Adjust for desired camera position -->
+          <!-- bottom-back -->
+          <pose>0 -3.0 -1.5 0 -0.3 1.570796</pose>
           <camera>
             <horizontal_fov>1.5</horizontal_fov>
             <image>
@@ -208,8 +224,176 @@
           <visualize>true</visualize>
           <topic>shahed_chase_cam/image</topic>
         </sensor>
-      </link>
 
+        <sensor name="bottom-left" type="camera">
+         <!-- Adjust for desired camera position -->
+          <pose>-2.0 -2.0 -1.5 0 -0.3 0.7</pose>
+          <camera>
+            <horizontal_fov>1.5</horizontal_fov>
+            <image>
+              <width>1920</width>
+              <height>1080</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>10000</far>
+            </clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>60</update_rate>
+          <visualize>true</visualize>
+          <topic>bottom-left/image</topic>
+        </sensor>
+
+        <sensor name="bottom-right" type="camera">
+         <!-- Adjust for desired camera position -->
+          <pose>2.0 -2.0 -1.5 0 -0.3 2.4416</pose>
+          <camera>
+            <horizontal_fov>1.5</horizontal_fov>
+            <image>
+              <width>1920</width>
+              <height>1080</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>10000</far>
+            </clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>60</update_rate>
+          <visualize>true</visualize>
+          <topic>bottom-right/image</topic>
+        </sensor>
+
+        <sensor name="mid-back" type="camera">
+         <!-- Adjust for desired camera position -->
+          <pose>0 -3.0 -0.8 0 0 1.570796</pose>
+          <camera>
+            <horizontal_fov>1.5</horizontal_fov>
+            <image>
+              <width>1920</width>
+              <height>1080</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>10000</far>
+            </clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>60</update_rate>
+          <visualize>true</visualize>
+          <topic>mid-back/image</topic>
+        </sensor>
+
+        <sensor name="mid-left" type="camera">
+         <!-- Adjust for desired camera position -->
+          <pose>-2.0 -2.0 -0.8 0 0 0.7</pose>
+          <camera>
+            <horizontal_fov>1.5</horizontal_fov>
+            <image>
+              <width>1920</width>
+              <height>1080</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>10000</far>
+            </clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>60</update_rate>
+          <visualize>true</visualize>
+          <topic>mid-left/image</topic>
+        </sensor>
+
+        <sensor name="mid-right" type="camera">
+         <!-- Adjust for desired camera position -->
+          <pose>2.0 -2.0 -0.8 0 0 2.4416</pose>
+          <camera>
+            <horizontal_fov>1.5</horizontal_fov>
+            <image>
+              <width>1920</width>
+              <height>1080</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>10000</far>
+            </clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>60</update_rate>
+          <visualize>true</visualize>
+          <topic>mid-right/image</topic>
+        </sensor>
+
+        <sensor name="top-back" type="camera">
+         <!-- Adjust for desired camera position -->
+          <pose>0 -3.0 -0.01 0 0.3 1.570796</pose>
+          <camera>
+            <horizontal_fov>1.5</horizontal_fov>
+            <image>
+              <width>1920</width>
+              <height>1080</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>10000</far>
+            </clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>60</update_rate>
+          <visualize>true</visualize>
+          <topic>top-back/image</topic>
+        </sensor>
+
+        <sensor name="top-left" type="camera">
+         <!-- Adjust for desired camera position -->
+          <pose>-2.0 -2.0 -0.1 0 0.3 0.7</pose>
+          <camera>
+            <horizontal_fov>1.5</horizontal_fov>
+            <image>
+              <width>1920</width>
+              <height>1080</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>10000</far>
+            </clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>60</update_rate>
+          <visualize>true</visualize>
+          <topic>top-left/image</topic>
+        </sensor>
+
+        <sensor name="top-right" type="camera">
+         <!-- Adjust for desired camera position -->
+          <pose>2.0 -2.0 -0.1 0 0.3 2.4416</pose>
+          <camera>
+            <horizontal_fov>1.5</horizontal_fov>
+            <image>
+              <width>1920</width>
+              <height>1080</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>10000</far>
+            </clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>60</update_rate>
+          <visualize>true</visualize>
+          <topic>top-right/image</topic>
+        </sensor>
+      </link>
+      
       <joint name="counter_joint" type="revolute">
         <pose relative_to="drone_stabilizer">0 0 0 0 0 0</pose>
         <parent>crank_link</parent>
@@ -290,10 +474,10 @@
           <!-- Forward is Y. So roll/banking axis is Y -->
           <xyz>0 1 0</xyz>
           <!-- Hard limits to prevent excessive banking (Left bank limited more heavily) -->
-          <limit>
-            <lower>-0.8</lower>
+          <!-- <limit>
+            <lower>-0.4</lower>
             <upper>0.8</upper>
-          </limit>
+          </limit> -->
           <use_parent_model_frame>1</use_parent_model_frame>
           <dynamics>
             <damping>1.5</damping>
@@ -307,17 +491,17 @@
 
       <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
         <joint_name>orbit_joint</joint_name>
-        <initial_velocity>0.4</initial_velocity>
+        <initial_velocity>0.45</initial_velocity>
       </plugin>
 
       <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
         <joint_name>zigzag_joint</joint_name>
-        <initial_velocity>2.5</initial_velocity> 
+        <initial_velocity>-1.80</initial_velocity>
       </plugin>
 
       <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
         <joint_name>counter_joint</joint_name>
-        <initial_velocity>-2.5</initial_velocity> <!-- exact opposite of zigzag ensures heading stays perfectly forward -->
+        <initial_velocity>1.80</initial_velocity> <!-- exact opposite of zigzag keeps the drone's heading stable -->
       </plugin>
     </model>
 
