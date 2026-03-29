@@ -264,7 +264,7 @@
       <child>imu_link</child>
       <parent>base_link</parent>
       <axis>
-        <xyz>1 0 0</xyz>
+        <xyz>0 0 1</xyz>
         <limit>
           <lower>0</lower>
           <upper>0</upper>
@@ -272,11 +272,14 @@
           <velocity>0</velocity>
         </limit>
         <dynamics>
-          <spring_reference>0</spring_reference>
-          <spring_stiffness>0</spring_stiffness>
+          <damping>1.0</damping>
         </dynamics>
-        <use_parent_model_frame>1</use_parent_model_frame>
       </axis>
+      <physics>
+        <ode>
+          <implicit_spring_damper>1</implicit_spring_damper>
+        </ode>
+      </physics>
     </joint>
     <link name='rotor_0'>
       <pose>0.13 -0.22 0.023 0 0 0</pose>
@@ -337,11 +340,14 @@
           <upper>1e+16</upper>
         </limit>
         <dynamics>
-          <spring_reference>0</spring_reference>
-          <spring_stiffness>0</spring_stiffness>
+          <damping>0.004</damping>
         </dynamics>
-        <use_parent_model_frame>1</use_parent_model_frame>
       </axis>
+      <physics>
+        <ode>
+          <implicit_spring_damper>1</implicit_spring_damper>
+        </ode>
+      </physics>
     </joint>
     <link name='rotor_1'>
       <pose>-0.13 0.22 0.023 0 0 0</pose>
@@ -402,11 +408,14 @@
           <upper>1e+16</upper>
         </limit>
         <dynamics>
-          <spring_reference>0</spring_reference>
-          <spring_stiffness>0</spring_stiffness>
+          <damping>0.004</damping>
         </dynamics>
-        <use_parent_model_frame>1</use_parent_model_frame>
       </axis>
+      <physics>
+        <ode>
+          <implicit_spring_damper>1</implicit_spring_damper>
+        </ode>
+      </physics>
     </joint>
     <link name='rotor_2'>
       <pose>0.13 0.22 0.023 0 0 0</pose>
@@ -467,11 +476,14 @@
           <upper>1e+16</upper>
         </limit>
         <dynamics>
-          <spring_reference>0</spring_reference>
-          <spring_stiffness>0</spring_stiffness>
+          <damping>0.004</damping>
         </dynamics>
-        <use_parent_model_frame>1</use_parent_model_frame>
       </axis>
+      <physics>
+        <ode>
+          <implicit_spring_damper>1</implicit_spring_damper>
+        </ode>
+      </physics>
     </joint>
     <link name='rotor_3'>
       <pose>-0.13 -0.22 0.023 0 0 0</pose>
@@ -532,11 +544,14 @@
           <upper>1e+16</upper>
         </limit>
         <dynamics>
-          <spring_reference>0</spring_reference>
-          <spring_stiffness>0</spring_stiffness>
+          <damping>0.004</damping>
         </dynamics>
-        <use_parent_model_frame>1</use_parent_model_frame>
       </axis>
+      <physics>
+        <ode>
+          <implicit_spring_damper>1</implicit_spring_damper>
+        </ode>
+      </physics>
     </joint>
     <!-- Lift/Drag plugins for rotor aerodynamics -->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
