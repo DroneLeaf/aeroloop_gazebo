@@ -126,6 +126,63 @@
           <update_rate>30</update_rate>
           <visualize>1</visualize>
         </sensor>
+        <!-- Landing standoffs (4 legs at motor positions) -->
+        <visual name='front_right_leg_visual'>
+          <pose>0.13 -0.22 -0.125 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.005</radius>
+              <length>0.20</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.1 0.1 0.1 1</ambient>
+            <diffuse>0.1 0.1 0.1 1</diffuse>
+            <specular>0.01 0.01 0.01 1</specular>
+          </material>
+        </visual>
+        <visual name='rear_left_leg_visual'>
+          <pose>-0.13 0.22 -0.125 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.005</radius>
+              <length>0.20</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.1 0.1 0.1 1</ambient>
+            <diffuse>0.1 0.1 0.1 1</diffuse>
+            <specular>0.01 0.01 0.01 1</specular>
+          </material>
+        </visual>
+        <visual name='front_left_leg_visual'>
+          <pose>0.13 0.22 -0.125 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.005</radius>
+              <length>0.20</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.1 0.1 0.1 1</ambient>
+            <diffuse>0.1 0.1 0.1 1</diffuse>
+            <specular>0.01 0.01 0.01 1</specular>
+          </material>
+        </visual>
+        <visual name='rear_right_leg_visual'>
+          <pose>-0.13 -0.22 -0.125 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.005</radius>
+              <length>0.20</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.1 0.1 0.1 1</ambient>
+            <diffuse>0.1 0.1 0.1 1</diffuse>
+            <specular>0.01 0.01 0.01 1</specular>
+          </material>
+        </visual>
         <!-- Chase camera sensor (third-person follow view) -->
         <sensor name="chase_cam" type="camera">
           <pose>-1.5 0 0.8 0 0.5236 0</pose>
@@ -146,7 +203,7 @@
         </sensor>
       </link>
 
-      <!-- Rotor 0: front-right (CW) — fixed joint, visual only -->
+      <!-- Rotor 0: front-right (CCW) -->
       <link name="rotor_0">
         <pose>0.13 -0.22 0.023 0 0 0</pose>
         <inertial>
@@ -161,7 +218,7 @@
           <geometry>
             <mesh>
               <scale>1 1 1</scale>
-              <uri>model://rocket_drone/meshes/rocket_drone_prop_cw.dae</uri>
+              <uri>model://rocket_drone/meshes/rocket_drone_prop_ccw.dae</uri>
             </mesh>
           </geometry>
           <material>
@@ -181,10 +238,13 @@
             <lower>-1e+16</lower>
             <upper>1e+16</upper>
           </limit>
+          <dynamics>
+            <damping>0.004</damping>
+          </dynamics>
         </axis>
       </joint>
 
-      <!-- Rotor 1: rear-left (CW) — fixed joint, visual only -->
+      <!-- Rotor 1: rear-left (CCW) -->
       <link name="rotor_1">
         <pose>-0.13 0.22 0.023 0 0 0</pose>
         <inertial>
@@ -199,7 +259,7 @@
           <geometry>
             <mesh>
               <scale>1 1 1</scale>
-              <uri>model://rocket_drone/meshes/rocket_drone_prop_cw.dae</uri>
+              <uri>model://rocket_drone/meshes/rocket_drone_prop_ccw.dae</uri>
             </mesh>
           </geometry>
           <material>
@@ -219,10 +279,13 @@
             <lower>-1e+16</lower>
             <upper>1e+16</upper>
           </limit>
+          <dynamics>
+            <damping>0.004</damping>
+          </dynamics>
         </axis>
       </joint>
 
-      <!-- Rotor 2: front-left (CCW) — fixed joint, visual only -->
+      <!-- Rotor 2: front-left (CW) -->
       <link name="rotor_2">
         <pose>0.13 0.22 0.023 0 0 0</pose>
         <inertial>
@@ -237,7 +300,7 @@
           <geometry>
             <mesh>
               <scale>1 1 1</scale>
-              <uri>model://rocket_drone/meshes/rocket_drone_prop_ccw.dae</uri>
+              <uri>model://rocket_drone/meshes/rocket_drone_prop_cw.dae</uri>
             </mesh>
           </geometry>
           <material>
@@ -257,10 +320,13 @@
             <lower>-1e+16</lower>
             <upper>1e+16</upper>
           </limit>
+          <dynamics>
+            <damping>0.004</damping>
+          </dynamics>
         </axis>
       </joint>
 
-      <!-- Rotor 3: rear-right (CCW) — fixed joint, visual only -->
+      <!-- Rotor 3: rear-right (CW) -->
       <link name="rotor_3">
         <pose>-0.13 -0.22 0.023 0 0 0</pose>
         <inertial>
@@ -275,7 +341,7 @@
           <geometry>
             <mesh>
               <scale>1 1 1</scale>
-              <uri>model://rocket_drone/meshes/rocket_drone_prop_ccw.dae</uri>
+              <uri>model://rocket_drone/meshes/rocket_drone_prop_cw.dae</uri>
             </mesh>
           </geometry>
           <material>
@@ -295,6 +361,9 @@
             <lower>-1e+16</lower>
             <upper>1e+16</upper>
           </limit>
+          <dynamics>
+            <damping>0.004</damping>
+          </dynamics>
         </axis>
       </joint>
 
@@ -307,11 +376,11 @@
       <plugin filename="RotorVisualPlugin" name="gz::sim::systems::RotorVisualPlugin">
         <listen_port>9012</listen_port>
         <max_velocity>100.0</max_velocity>
-        <!-- CW rotors: -1, CCW rotors: +1 -->
-        <spin_dir_0>-1</spin_dir_0>
-        <spin_dir_1>-1</spin_dir_1>
-        <spin_dir_2>1</spin_dir_2>
-        <spin_dir_3>1</spin_dir_3>
+        <!-- CCW rotors (0,1): +1, CW rotors (2,3): -1 -->
+        <spin_dir_0>1</spin_dir_0>
+        <spin_dir_1>1</spin_dir_1>
+        <spin_dir_2>-1</spin_dir_2>
+        <spin_dir_3>-1</spin_dir_3>
       </plugin>
     </model>
 
