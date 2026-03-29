@@ -6,17 +6,13 @@
       <real_time_factor>1.0</real_time_factor>
     </physics>
 
-    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics">
-    </plugin>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
       <render_engine>ogre2</render_engine>
     </plugin>
-    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands">
-    </plugin>
-    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster">
-    </plugin>
-    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu">
-    </plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
 
     <scene>
       <sky>
@@ -44,41 +40,14 @@
       <direction>-0.5 0.1 -0.9</direction>
     </light>
 
-    <!-- <model name="grass_plane">
-      <static>true</static>
-      <link name="link">
-        <collision name="collision">
-          <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>1000 1000</size>
-            </plane>
-          </geometry>
-          <surface>
-            <friction>
-              <ode>
-                <mu>100</mu>
-                <mu2>50</mu2>
-              </ode>
-            </friction>
-          </surface>
-        </collision>
-        <visual name="visual">
-          <cast_shadows>false</cast_shadows>
-          <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>1000 1000</size>
-            </plane>
-          </geometry>
-          <material>
-            <ambient>0.1 0.5 0.1 1</ambient>
-            <diffuse>0.1 0.5 0.1 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model> -->
 
+
+    <include>
+      <uri>model://baylands_terrain</uri>
+      <name>baylands_terrain</name>
+      <pose>-100 150 -0.77 0 0 0</pose>
+    </include>
+    
     <!-- Rocket drone vehicle -->
     <include>
       <uri>model://rocket_drone</uri>
@@ -86,25 +55,11 @@
       <pose>0 0 1 0 0 0</pose>
     </include>
 
-    <include>
-      <uri>
-      model://baylands_terrain</uri>
-      <name>baylands_terrain</name>
-      <pose>150 130 0 0 0 0</pose>
-    </include>
 
-    <!-- <include>
-      <uri>
-      https://fuel.gazebosim.org/1.0/OpenRobotics/models/nathan_benderson_park
-      </uri>
-    </include> -->
-
-    <!-- <include>
-      <uri>model://Plane</uri>
-      <name>ground_plane</name>
-      <pose>0 0 0 0 0 0</pose>
-    </include> -->
-    <!-- Moving target: oval / racetrack-like loop built from two coupled rotations -->
+    <!-- ================================================================
+         SHAHED DRONE — full epitrochoid path with banking
+         Unchanged from original. orbit(0.45) + zigzag(-1.80) + counter(1.80)
+         ================================================================ -->
     <model name="shahed_drone">
       <static>false</static>
       <pose>0 0 20 0 0 0</pose>
@@ -113,316 +68,173 @@
         <gravity>false</gravity>
         <inertial>
           <mass>0.1</mass>
-          <inertia>
-            <ixx>0.0001</ixx>
-            <iyy>0.0001</iyy>
-            <izz>0.0001</izz>
-          </inertia>
+          <inertia><ixx>0.0001</ixx><iyy>0.0001</iyy><izz>0.0001</izz></inertia>
         </inertial>
       </link>
-
       <joint name="world_anchor" type="fixed">
         <parent>world</parent>
         <child>orbit_center</child>
       </joint>
 
-      <!-- Primary orbit arm (larger radius gives wider sweeping turns) -->
       <link name="arm_link">
         <pose relative_to="orbit_center">30 0 0 0 0 0</pose>
         <gravity>false</gravity>
         <inertial>
           <mass>0.1</mass>
-          <inertia>
-            <ixx>0.0001</ixx>
-            <iyy>0.0001</iyy>
-            <izz>0.0001</izz>
-          </inertia>
+          <inertia><ixx>0.0001</ixx><iyy>0.0001</iyy><izz>0.0001</izz></inertia>
         </inertial>
       </link>
-
       <joint name="orbit_joint" type="revolute">
         <pose relative_to="orbit_center">0 0 0 0 0 0</pose>
         <parent>orbit_center</parent>
         <child>arm_link</child>
-        <axis>
-          <xyz>0 0 1</xyz>
-          <use_parent_model_frame>1</use_parent_model_frame>
-        </axis>
+        <axis><xyz expressed_in="__model__">0 0 1</xyz></axis>
       </joint>
 
-      <!-- Secondary crank in opposite direction creates right-left chicane-like curves -->
       <link name="crank_link">
         <pose relative_to="arm_link">0 0 0 0 0 0</pose>
         <gravity>false</gravity>
         <inertial>
           <mass>0.1</mass>
-          <inertia>
-            <ixx>0.0001</ixx>
-            <iyy>0.0001</iyy>
-            <izz>0.0001</izz>
-          </inertia>
+          <inertia><ixx>0.0001</ixx><iyy>0.0001</iyy><izz>0.0001</izz></inertia>
         </inertial>
       </link>
-
       <joint name="zigzag_joint" type="revolute">
         <pose relative_to="arm_link">0 0 0 0 0 0</pose>
         <parent>arm_link</parent>
         <child>crank_link</child>
-        <axis>
-          <xyz>0 0 1</xyz>
-          <use_parent_model_frame>1</use_parent_model_frame>
-        </axis>
+        <axis><xyz expressed_in="__model__">0 0 1</xyz></axis>
       </joint>
 
-      <!-- Stabilizer offset controls how pronounced the right-left bends are -->
       <link name="drone_stabilizer">
-        <!-- 4.5m offset gives F1-style flowing curves without hard braking zones -->
         <pose relative_to="crank_link">4.5 0 0 0 0 0</pose>
         <gravity>false</gravity>
         <inertial>
           <mass>0.1</mass>
-          <inertia>
-            <ixx>0.0001</ixx>
-            <iyy>0.0001</iyy>
-            <izz>0.0001</izz>
-          </inertia>
+          <inertia><ixx>0.0001</ixx><iyy>0.0001</iyy><izz>0.0001</izz></inertia>
         </inertial>
-          <!-- bottom-left -->
-          <!-- <pose>-2.0 -2.0 -1.5 0 -0.3 0.7</pose> -->
-          <!-- bottom-right -->
-          <!-- <pose>2.0 -2.0 -1.5 0 -0.3 2.4416</pose> -->
-          <!-- mid-back -->
-          <!-- <pose>0 -3.0 -0.8 0 0 1.570796</pose> -->
-          <!-- mid-left -->
-          <!-- <pose>-2.0 -2.0 -0.8 0 0 0.7</pose> -->
-          <!-- mid-right -->
-          <!-- <pose>2.0 -2.0 -0.8 0 0 2.4416</pose> -->
-          <!-- top-back -->
-          <!-- <pose>0 -3.0 -0.01 0 0.3 1.570796</pose> -->
-          <!-- top-left -->
-          <!-- <pose>-2.0 -2.0 -0.1 0 0.3 0.7</pose> -->
-          <!-- top-right -->
-          <!-- <pose>2.0 -2.0 -0.1 0 0.3 2.4416</pose> -->
-        <sensor name="shahed_chase_cam" type="camera">
-         <!-- Adjust for desired camera position -->
-          <!-- bottom-back -->
-          <pose>0 -3.0 -1.5 0 -0.3 1.570796</pose>
+
+      <!-- Keep chase_cam (underscore) to match start_shahed_chase.py topic discovery. -->
+      <sensor name="chase_cam" type="camera">
+          <pose>0 -7.0 0.1 0 0.3 1.570796</pose>
           <camera>
             <horizontal_fov>1.5</horizontal_fov>
-            <image>
-              <width>1920</width>
-              <height>1080</height>
-              <format>R8G8B8</format>
-            </image>
-            <clip>
-              <near>0.1</near>
-              <far>10000</far>
-            </clip>
+            <image><width>1920</width><height>1080</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>10000</far></clip>
           </camera>
-          <always_on>1</always_on>
-          <update_rate>60</update_rate>
-          <visualize>true</visualize>
-          <topic>shahed_chase_cam/image</topic>
+          <always_on>1</always_on><update_rate>60</update_rate>
+          <!-- Keep chase_cam/image (underscore) to avoid selecting other camera topics. -->
+          <visualize>true</visualize><topic>chase_cam/image</topic>
         </sensor>
-
+        <!--
         <sensor name="bottom-left" type="camera">
-         <!-- Adjust for desired camera position -->
           <pose>-2.0 -2.0 -1.5 0 -0.3 0.7</pose>
           <camera>
             <horizontal_fov>1.5</horizontal_fov>
-            <image>
-              <width>1920</width>
-              <height>1080</height>
-              <format>R8G8B8</format>
-            </image>
-            <clip>
-              <near>0.1</near>
-              <far>10000</far>
-            </clip>
+            <image><width>1920</width><height>1080</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>10000</far></clip>
           </camera>
-          <always_on>1</always_on>
-          <update_rate>60</update_rate>
-          <visualize>true</visualize>
-          <topic>bottom-left/image</topic>
+          <always_on>1</always_on><update_rate>60</update_rate>
+          <visualize>true</visualize><topic>bottom-left/image</topic>
         </sensor>
 
         <sensor name="bottom-right" type="camera">
-         <!-- Adjust for desired camera position -->
           <pose>2.0 -2.0 -1.5 0 -0.3 2.4416</pose>
           <camera>
             <horizontal_fov>1.5</horizontal_fov>
-            <image>
-              <width>1920</width>
-              <height>1080</height>
-              <format>R8G8B8</format>
-            </image>
-            <clip>
-              <near>0.1</near>
-              <far>10000</far>
-            </clip>
+            <image><width>1920</width><height>1080</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>10000</far></clip>
           </camera>
-          <always_on>1</always_on>
-          <update_rate>60</update_rate>
-          <visualize>true</visualize>
-          <topic>bottom-right/image</topic>
+          <always_on>1</always_on><update_rate>60</update_rate>
+          <visualize>true</visualize><topic>bottom-right/image</topic>
         </sensor>
 
         <sensor name="mid-back" type="camera">
-         <!-- Adjust for desired camera position -->
           <pose>0 -3.0 -0.8 0 0 1.570796</pose>
           <camera>
             <horizontal_fov>1.5</horizontal_fov>
-            <image>
-              <width>1920</width>
-              <height>1080</height>
-              <format>R8G8B8</format>
-            </image>
-            <clip>
-              <near>0.1</near>
-              <far>10000</far>
-            </clip>
+            <image><width>1920</width><height>1080</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>10000</far></clip>
           </camera>
-          <always_on>1</always_on>
-          <update_rate>60</update_rate>
-          <visualize>true</visualize>
-          <topic>mid-back/image</topic>
+          <always_on>1</always_on><update_rate>60</update_rate>
+          <visualize>true</visualize><topic>mid-back/image</topic>
         </sensor>
 
         <sensor name="mid-left" type="camera">
-         <!-- Adjust for desired camera position -->
           <pose>-2.0 -2.0 -0.8 0 0 0.7</pose>
           <camera>
             <horizontal_fov>1.5</horizontal_fov>
-            <image>
-              <width>1920</width>
-              <height>1080</height>
-              <format>R8G8B8</format>
-            </image>
-            <clip>
-              <near>0.1</near>
-              <far>10000</far>
-            </clip>
+            <image><width>1920</width><height>1080</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>10000</far></clip>
           </camera>
-          <always_on>1</always_on>
-          <update_rate>60</update_rate>
-          <visualize>true</visualize>
-          <topic>mid-left/image</topic>
+          <always_on>1</always_on><update_rate>60</update_rate>
+          <visualize>true</visualize><topic>mid-left/image</topic>
         </sensor>
 
         <sensor name="mid-right" type="camera">
-         <!-- Adjust for desired camera position -->
           <pose>2.0 -2.0 -0.8 0 0 2.4416</pose>
           <camera>
             <horizontal_fov>1.5</horizontal_fov>
-            <image>
-              <width>1920</width>
-              <height>1080</height>
-              <format>R8G8B8</format>
-            </image>
-            <clip>
-              <near>0.1</near>
-              <far>10000</far>
-            </clip>
+            <image><width>1920</width><height>1080</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>10000</far></clip>
           </camera>
-          <always_on>1</always_on>
-          <update_rate>60</update_rate>
-          <visualize>true</visualize>
-          <topic>mid-right/image</topic>
+          <always_on>1</always_on><update_rate>60</update_rate>
+          <visualize>true</visualize><topic>mid-right/image</topic>
         </sensor>
 
-        <sensor name="top-back" type="camera">
-         <!-- Adjust for desired camera position -->
-          <pose>0 -7.0 -0.01 0 0.3 1.570796</pose>
+        <sensor name="bottom-back" type="camera">
+          <pose>0 -3.0 -1.5 0 -0.3 1.570796</pose>
           <camera>
             <horizontal_fov>1.5</horizontal_fov>
-            <image>
-              <width>1920</width>
-              <height>1080</height>
-              <format>R8G8B8</format>
-            </image>
-            <clip>
-              <near>0.1</near>
-              <far>10000</far>
-            </clip>
+            <image><width>1920</width><height>1080</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>10000</far></clip>
           </camera>
-          <always_on>1</always_on>
-          <update_rate>60</update_rate>
-          <visualize>true</visualize>
-          <topic>top-back/image</topic>
+          <always_on>1</always_on><update_rate>60</update_rate>
+          <visualize>true</visualize><topic>bottom-back/image</topic>
         </sensor>
 
         <sensor name="top-left" type="camera">
-         <!-- Adjust for desired camera position -->
           <pose>-2.0 -2.0 -0.1 0 0.3 0.7</pose>
           <camera>
             <horizontal_fov>1.5</horizontal_fov>
-            <image>
-              <width>1920</width>
-              <height>1080</height>
-              <format>R8G8B8</format>
-            </image>
-            <clip>
-              <near>0.1</near>
-              <far>10000</far>
-            </clip>
+            <image><width>1920</width><height>1080</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>10000</far></clip>
           </camera>
-          <always_on>1</always_on>
-          <update_rate>60</update_rate>
-          <visualize>true</visualize>
-          <topic>top-left/image</topic>
+          <always_on>1</always_on><update_rate>60</update_rate>
+          <visualize>true</visualize><topic>top-left/image</topic>
         </sensor>
 
         <sensor name="top-right" type="camera">
-         <!-- Adjust for desired camera position -->
           <pose>2.0 -2.0 -0.1 0 0.3 2.4416</pose>
           <camera>
             <horizontal_fov>1.5</horizontal_fov>
-            <image>
-              <width>1920</width>
-              <height>1080</height>
-              <format>R8G8B8</format>
-            </image>
-            <clip>
-              <near>0.1</near>
-              <far>10000</far>
-            </clip>
+            <image><width>1920</width><height>1080</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>10000</far></clip>
           </camera>
-          <always_on>1</always_on>
-          <update_rate>60</update_rate>
-          <visualize>true</visualize>
-          <topic>top-right/image</topic>
-        </sensor>
+          <always_on>1</always_on><update_rate>60</update_rate>
+          <visualize>true</visualize><topic>top-right/image</topic>
+        </sensor> -->
       </link>
-      
+
       <joint name="counter_joint" type="revolute">
         <pose relative_to="drone_stabilizer">0 0 0 0 0 0</pose>
         <parent>crank_link</parent>
         <child>drone_stabilizer</child>
-        <axis>
-          <xyz>0 0 1</xyz>
-          <use_parent_model_frame>1</use_parent_model_frame>
-        </axis>
+        <axis><xyz expressed_in="__model__">0 0 1</xyz></axis>
       </joint>
 
-      <!-- The drone body, attached via a hinge to allow natural roll (banking) during turns -->
       <link name="geranium_link">
-        <!-- Hang down by 0.8m so gravity gives it a pendulum effect for banking -->
         <pose relative_to="drone_stabilizer">0 0 -0.8 0 0 0</pose>
         <gravity>true</gravity>
         <inertial>
           <mass>1.0</mass>
-          <inertia>
-            <ixx>0.02</ixx>
-            <iyy>0.02</iyy>
-            <izz>0.04</izz>
-          </inertia>
+          <inertia><ixx>0.02</ixx><iyy>0.02</iyy><izz>0.04</izz></inertia>
         </inertial>
         <visual name="visual">
           <pose>0 0 0 1.57079 0 3.14159</pose>
           <geometry>
             <mesh>
               <uri>model://shahed_drone/meshes/shahed.glb</uri>
-              <!-- You might need to adjust the scale later if the object is too big or small -->
               <scale>1 1 1</scale>
             </mesh>
           </geometry>
@@ -440,18 +252,11 @@
               <restitution_coefficient>0.1</restitution_coefficient>
               <threshold>0.0</threshold>
             </bounce>
-            <friction>
-              <ode>
-                <mu>1.0</mu>
-                <mu2>1.0</mu2>
-              </ode>
-            </friction>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
             <contact>
               <ode>
-                <kp>100000</kp>
-                <kd>10</kd>
-                <max_vel>1.0</max_vel>
-                <min_depth>0.001</min_depth>
+                <kp>100000</kp><kd>10</kd>
+                <max_vel>1.0</max_vel><min_depth>0.001</min_depth>
               </ode>
             </contact>
           </surface>
@@ -459,32 +264,21 @@
         <sensor name="contact_sensor" type="contact">
           <always_on>true</always_on>
           <update_rate>50.0</update_rate>
-          <contact>
-            <collision>collision</collision>
-          </contact>
+          <contact><collision>collision</collision></contact>
         </sensor>
       </link>
 
       <joint name="roll_joint" type="revolute">
-        <!-- Pivot at the stabilizer link, leaving the drone to hang -->
         <pose relative_to="drone_stabilizer">0 0 0 0 0 0</pose>
         <parent>drone_stabilizer</parent>
         <child>geranium_link</child>
         <axis>
-          <!-- Forward is Y. So roll/banking axis is Y -->
-          <xyz>0 1 0</xyz>
-          <!-- Hard limits to prevent excessive banking (Left bank limited more heavily) -->
-          <!-- <limit>
-            <lower>-0.4</lower>
-            <upper>0.8</upper>
-          </limit> -->
-          <use_parent_model_frame>1</use_parent_model_frame>
+          <xyz expressed_in="__model__">0 1 0</xyz>
           <dynamics>
-            <damping>1.5</damping>
+            <damping>0.8</damping>
             <friction>0.05</friction>
-            <!-- Spring constantly pulls the drone upright so it fights the centrifugal drift -->
             <spring_reference>0</spring_reference>
-            <spring_stiffness>12.0</spring_stiffness>
+            <spring_stiffness>4.0</spring_stiffness>
           </dynamics>
         </axis>
       </joint>
@@ -493,17 +287,99 @@
         <joint_name>orbit_joint</joint_name>
         <initial_velocity>0.45</initial_velocity>
       </plugin>
-
       <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
         <joint_name>zigzag_joint</joint_name>
         <initial_velocity>-1.80</initial_velocity>
       </plugin>
-
       <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
         <joint_name>counter_joint</joint_name>
-        <initial_velocity>1.80</initial_velocity> <!-- exact opposite of zigzag keeps the drone's heading stable -->
+        <initial_velocity>1.80</initial_velocity>
       </plugin>
+
     </model>
+
+    <!-- ================================================================
+         CHASE CAMERA — completely separate model, no connection to drone.
+         Traces a simple circle at the same 30m radius and 20m altitude.
+         Runs at 0.38 rad/s (vs drone orbit 0.45) so it lags ~16% behind.
+         Camera points INWARD toward world origin (where drone orbit center is)
+         with a slight downward pitch to keep drone in frame.
+
+         The camera body never rolls, never zigzags, never banks.
+         It just smoothly circles at constant speed, always behind the drone.
+
+         To adjust lag: change chase_orbit velocity.
+           More lag  → lower speed (e.g. 0.32)
+           Less lag  → raise speed closer to 0.45 (e.g. 0.42)
+
+         To adjust camera height offset: change cam_arm z in pose.
+         To adjust how far behind: change the phase at start by offsetting
+           the initial arm_link pose angle — or just tune the speed delta.
+         ================================================================ -->
+    <!-- <model name="chase_camera">
+      <static>false</static> -->
+      <!-- Same world height as drone (z=20), starts at same position -->
+      <!-- <pose>0 0 20 0 0 0</pose> -->
+
+      <!-- World anchor for camera orbit -->
+      <!-- <link name="chase_center">
+        <gravity>false</gravity>
+        <inertial>
+          <mass>0.1</mass>
+          <inertia><ixx>0.0001</ixx><iyy>0.0001</iyy><izz>0.0001</izz></inertia>
+        </inertial>
+      </link>
+      <joint name="chase_world_anchor" type="fixed">
+        <parent>world</parent>
+        <child>chase_center</child>
+      </joint> -->
+
+      <!-- Camera arm — same 30m radius as drone orbit arm.
+           Camera sits at end of arm, pointing inward (toward origin).
+           z=2 raises it 2m above drone flight plane for a top-down angle. -->
+      <!-- <link name="cam_arm">
+        <pose relative_to="chase_center">30 0 -1 -0.3 0 0</pose>
+        <gravity>false</gravity>
+        <inertial>
+          <mass>0.1</mass>
+          <inertia><ixx>0.0001</ixx><iyy>0.0001</iyy><izz>0.0001</izz></inertia>
+        </inertial> -->
+
+        <!-- Camera sensor:
+             - Points inward toward origin: yaw = PI (3.14159) faces -X = inward
+             - pitch = 0.25 rad tilts down ~14 deg to frame drone vertically
+             - No roll — camera stays perfectly level always
+             Adjust pitch up (larger value) if drone appears too high in frame.
+             Adjust z on cam_arm pose to raise/lower camera position. -->
+        <!-- <sensor name="shahed_chase_cam" type="camera">
+          <pose>0 -5.5 0 0 0 1.6</pose>
+          <camera>
+            <horizontal_fov>1.2</horizontal_fov>
+            <image><width>1920</width><height>1080</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>10000</far></clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>60</update_rate>
+          <visualize>true</visualize>
+          <topic>shahed_chase_cam/image</topic>
+        </sensor>
+      </link>
+
+      <joint name="chase_orbit_joint" type="revolute">
+        <pose relative_to="chase_center">0 0 0 0 0 0</pose>
+        <parent>chase_center</parent>
+        <child>cam_arm</child>
+        <axis><xyz expressed_in="__model__">0 0 1</xyz></axis>
+      </joint>
+
+      <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
+        <joint_name>chase_orbit_joint</joint_name> -->
+        <!-- Slightly slower than drone orbit (0.45) → camera lags behind.
+             At this delta the camera is roughly 1-2s behind on each loop. -->
+        <!-- <initial_velocity>0.44</initial_velocity>
+      </plugin>
+
+    </model> -->
 
     <gui fullscreen="0">
       <camera name="user_camera">

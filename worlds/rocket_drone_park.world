@@ -90,7 +90,7 @@
       <uri>
       model://baylands_terrain</uri>
       <name>baylands_terrain</name>
-      <pose>150 130 0 0 0 0</pose>
+      <pose>-100 150 -0.77 0 0 0</pose>
     </include>
 
     <!-- <include>

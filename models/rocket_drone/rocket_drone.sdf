@@ -16,7 +16,8 @@
         </inertia>
       </inertial>
       <collision name='base_link_inertia_collision'>
-        <pose>0 0 0 0 0 0</pose>
+        <!-- Box height is 0.11m, so -0.16 keeps its bottom at z=0 instead of intersecting terrain -->
+        <pose>0 0 -0.16 0 0 0</pose>
         <geometry>
           <box>
             <size>0.47 0.47 0.11</size>
