@@ -516,6 +516,7 @@
     <plugin name="gz::sim::systems::BetaflightPlugin" filename="BetaflightPlugin">
       <imuName>iris_demo::iris::iris/imu_link::imu_sensor</imuName>
       <connectionTimeoutMaxCount>5</connectionTimeoutMaxCount>
+      <!-- Motor mapping: SITL sends servo[0]=BF Motor 1 (FR), [1]=Motor 2 (RL), [2]=Motor 3 (FL), [3]=Motor 0 (RR) -->
       <rotor id="0">
         <vel_p_gain>0.01</vel_p_gain>
         <vel_i_gain>0</vel_i_gain>

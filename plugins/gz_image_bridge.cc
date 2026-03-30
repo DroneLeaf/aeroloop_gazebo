@@ -251,7 +251,9 @@ static void parseMspResponse(const MspResponse &r, OsdTelemetry &t)
     case MSP_STATUS:
         if (len >= 11)
         {
-            t.flight_mode_flags = d[4] | (d[5]<<8) | (d[6]<<16) | (d[7]<<24);
+            // MSP_STATUS layout: [0-1] cycleTime, [2-3] i2cErrors,
+            // [4-5] sensors, [6-9] flightModeFlags, [10] profileIdx
+            t.flight_mode_flags = d[6] | (d[7]<<8) | (d[8]<<16) | (d[9]<<24);
             t.armed = (t.flight_mode_flags & 1) != 0;
         }
         break;

@@ -683,19 +683,8 @@
     <plugin name="gz::sim::systems::BetaflightPlugin" filename="BetaflightPlugin">
       <imuName>iris/imu_link::imu_sensor</imuName>
       <connectionTimeoutMaxCount>5</connectionTimeoutMaxCount>
+      <!-- Motor mapping: SITL sends servo[0]=BF Motor 1 (FR), [1]=Motor 2 (RL), [2]=Motor 3 (FL), [3]=Motor 0 (RR) -->
       <rotor id="0">
-        <vel_p_gain>0.01</vel_p_gain>
-        <vel_i_gain>0</vel_i_gain>
-        <vel_d_gain>0</vel_d_gain>
-        <vel_i_max>0</vel_i_max>
-        <vel_i_min>0</vel_i_min>
-        <vel_cmd_max>838.0</vel_cmd_max>
-        <vel_cmd_min>-838.0</vel_cmd_min>
-        <jointName>rotor_3_joint</jointName>
-        <turningDirection>cw</turningDirection>
-        <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
-      </rotor>
-      <rotor id="1">
         <vel_p_gain>0.01</vel_p_gain>
         <vel_i_gain>0</vel_i_gain>
         <vel_d_gain>0</vel_d_gain>
@@ -707,7 +696,7 @@
         <turningDirection>ccw</turningDirection>
         <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
       </rotor>
-      <rotor id="2">
+      <rotor id="1">
         <vel_p_gain>0.01</vel_p_gain>
         <vel_i_gain>0</vel_i_gain>
         <vel_d_gain>0</vel_d_gain>
@@ -719,7 +708,7 @@
         <turningDirection>ccw</turningDirection>
         <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
       </rotor>
-      <rotor id="3">
+      <rotor id="2">
         <vel_p_gain>0.01</vel_p_gain>
         <vel_i_gain>0</vel_i_gain>
         <vel_d_gain>0</vel_d_gain>
@@ -728,6 +717,18 @@
         <vel_cmd_max>838.0</vel_cmd_max>
         <vel_cmd_min>-838.0</vel_cmd_min>
         <jointName>rotor_2_joint</jointName>
+        <turningDirection>cw</turningDirection>
+        <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
+      </rotor>
+      <rotor id="3">
+        <vel_p_gain>0.01</vel_p_gain>
+        <vel_i_gain>0</vel_i_gain>
+        <vel_d_gain>0</vel_d_gain>
+        <vel_i_max>0</vel_i_max>
+        <vel_i_min>0</vel_i_min>
+        <vel_cmd_max>838.0</vel_cmd_max>
+        <vel_cmd_min>-838.0</vel_cmd_min>
+        <jointName>rotor_3_joint</jointName>
         <turningDirection>cw</turningDirection>
         <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
       </rotor>
