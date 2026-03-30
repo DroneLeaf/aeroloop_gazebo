@@ -72,8 +72,8 @@
             </plane>
           </geometry>
           <material>
-            <ambient>0.1 0.5 0.1 1</ambient>
-            <diffuse>0.1 0.5 0.1 1</diffuse>
+            <ambient>0.25 0.45 0.25 1</ambient>
+            <diffuse>0.25 0.45 0.25 1</diffuse>
           </material>
         </visual>
       </link>
@@ -83,7 +83,7 @@
     <include>
       <uri>model://rocket_drone</uri>
       <name>betaflight_vehicle</name>
-      <pose>0 0 1 0 0 0</pose>
+      <pose>0 0 0.3 0 0 0</pose>
     </include>
 
     <include>
@@ -93,19 +93,9 @@
       <pose>-100 150 -0.77 0 0 0</pose>
     </include>
 
-    <!-- <include>
-      <uri>
-      https://fuel.gazebosim.org/1.0/OpenRobotics/models/nathan_benderson_park
-      </uri>
-    </include> -->
 
-    <!-- <include>
-      <uri>model://Plane</uri>
-      <name>ground_plane</name>
-      <pose>0 0 0 0 0 0</pose>
-    </include> -->
-    <!-- Moving target: oval / racetrack-like loop built from two coupled rotations -->
-    <model name="shahed_drone">
+    <!-- Moving geranium target: revolves around orbit_center in a circle -->
+    <model name="moving_target_drone">
       <static>false</static>
       <pose>0 0 20 0 0 0</pose>
 
@@ -117,6 +107,9 @@
             <ixx>0.0001</ixx>
             <iyy>0.0001</iyy>
             <izz>0.0001</izz>
+            <ixy>0.0</ixy>
+            <ixz>0.0</ixz>
+            <iyz>0.0</iyz>
           </inertia>
         </inertial>
       </link>
@@ -126,108 +119,37 @@
         <child>orbit_center</child>
       </joint>
 
-      <!-- Primary orbit arm (larger radius gives wider sweeping turns) -->
-      <link name="arm_link">
-        <pose relative_to="orbit_center">30 0 0 0 0 0</pose>
-        <gravity>false</gravity>
-        <inertial>
-          <mass>0.1</mass>
-          <inertia>
-            <ixx>0.0001</ixx>
-            <iyy>0.0001</iyy>
-            <izz>0.0001</izz>
-          </inertia>
-        </inertial>
-      </link>
-
-      <joint name="orbit_joint" type="revolute">
-        <pose relative_to="orbit_center">0 0 0 0 0 0</pose>
-        <parent>orbit_center</parent>
-        <child>arm_link</child>
-        <axis>
-          <xyz>0 0 1</xyz>
-          <use_parent_model_frame>1</use_parent_model_frame>
-        </axis>
-      </joint>
-
-      <!-- Secondary crank in opposite direction creates right-left chicane-like curves -->
-      <link name="crank_link">
-        <pose relative_to="arm_link">0 0 0 0 0 0</pose>
-        <gravity>false</gravity>
-        <inertial>
-          <mass>0.1</mass>
-          <inertia>
-            <ixx>0.0001</ixx>
-            <iyy>0.0001</iyy>
-            <izz>0.0001</izz>
-          </inertia>
-        </inertial>
-      </link>
-
-      <joint name="zigzag_joint" type="revolute">
-        <pose relative_to="arm_link">0 0 0 0 0 0</pose>
-        <parent>arm_link</parent>
-        <child>crank_link</child>
-        <axis>
-          <xyz>0 0 1</xyz>
-          <use_parent_model_frame>1</use_parent_model_frame>
-        </axis>
-      </joint>
-
-      <!-- Stabilizer offset controls how pronounced the right-left bends are -->
-      <link name="drone_stabilizer">
-        <!-- 4.5m offset gives F1-style flowing curves without hard braking zones -->
-        <pose relative_to="crank_link">4.5 0 0 0 0 0</pose>
-        <gravity>false</gravity>
-        <inertial>
-          <mass>0.1</mass>
-          <inertia>
-            <ixx>0.0001</ixx>
-            <iyy>0.0001</iyy>
-            <izz>0.0001</izz>
-          </inertia>
-        </inertial>
-      </link>
-      
-      <joint name="counter_joint" type="revolute">
-        <pose relative_to="drone_stabilizer">0 0 0 0 0 0</pose>
-        <parent>crank_link</parent>
-        <child>drone_stabilizer</child>
-        <axis>
-          <xyz>0 0 1</xyz>
-          <use_parent_model_frame>1</use_parent_model_frame>
-        </axis>
-      </joint>
-
-      <!-- The drone body, attached via a hinge to allow natural roll (banking) during turns -->
       <link name="geranium_link">
-        <!-- Hang down by 0.8m so gravity gives it a pendulum effect for banking -->
-        <pose relative_to="drone_stabilizer">0 0 -0.8 0 0 0</pose>
-        <gravity>true</gravity>
+        <pose>0 0 0 0 0 0</pose>
+        <gravity>false</gravity>
         <inertial>
           <mass>1.0</mass>
           <inertia>
             <ixx>0.02</ixx>
             <iyy>0.02</iyy>
             <izz>0.04</izz>
+            <ixy>0.0</ixy>
+            <ixz>0.0</ixz>
+            <iyz>0.0</iyz>
           </inertia>
         </inertial>
         <visual name="visual">
-          <pose>0 0 0 1.57079 0 3.14159</pose>
+          <pose>10 0 0 1.57079 0 0</pose>
           <geometry>
             <mesh>
-              <uri>model://shahed_drone/meshes/shahed.glb</uri>
-              <!-- You might need to adjust the scale later if the object is too big or small -->
-              <scale>1 1 1</scale>
+              <uri>model://rocket_drone/meshes/geranium-2.stl</uri>
             </mesh>
           </geometry>
+          <material>
+            <ambient>0.75 0.75 0.75 1</ambient>
+            <diffuse>0.75 0.75 0.75 1</diffuse>
+          </material>
         </visual>
         <collision name="collision">
-          <pose>0 0 0 1.57079 0 3.14159</pose>
+          <pose>10 0 0 1.57079 0 0</pose>
           <geometry>
             <mesh>
-              <uri>model://shahed_drone/meshes/shahed.glb</uri>
-              <scale>1 1 1</scale>
+              <uri>model://rocket_drone/meshes/geranium-2.stl</uri>
             </mesh>
           </geometry>
           <surface>
@@ -260,43 +182,22 @@
         </sensor>
       </link>
 
-      <joint name="roll_joint" type="revolute">
-        <!-- Pivot at the stabilizer link, leaving the drone to hang -->
-        <pose relative_to="drone_stabilizer">0 0 0 0 0 0</pose>
-        <parent>drone_stabilizer</parent>
+      <joint name="orbit_joint" type="revolute">
+        <parent>orbit_center</parent>
         <child>geranium_link</child>
         <axis>
-          <!-- Forward is Y. So roll/banking axis is Y -->
-          <xyz>0 1 0</xyz>
-          <!-- Hard limits to prevent excessive banking (Left bank limited more heavily) -->
-          <!-- <limit>
-            <lower>-0.4</lower>
-            <upper>0.8</upper>
-          </limit> -->
+          <xyz>0 0 1</xyz>
           <use_parent_model_frame>1</use_parent_model_frame>
           <dynamics>
-            <damping>1.5</damping>
-            <friction>0.05</friction>
-            <!-- Spring constantly pulls the drone upright so it fights the centrifugal drift -->
-            <spring_reference>0</spring_reference>
-            <spring_stiffness>12.0</spring_stiffness>
+            <damping>0.0</damping>
+            <friction>0.0</friction>
           </dynamics>
         </axis>
       </joint>
 
       <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
         <joint_name>orbit_joint</joint_name>
-        <initial_velocity>0.45</initial_velocity>
-      </plugin>
-
-      <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
-        <joint_name>zigzag_joint</joint_name>
-        <initial_velocity>-1.80</initial_velocity>
-      </plugin>
-
-      <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
-        <joint_name>counter_joint</joint_name>
-        <initial_velocity>1.80</initial_velocity> <!-- exact opposite of zigzag keeps the drone's heading stable -->
+        <initial_velocity>0.6</initial_velocity>
       </plugin>
     </model>
 
