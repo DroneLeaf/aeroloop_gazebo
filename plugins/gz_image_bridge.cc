@@ -1212,9 +1212,24 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
         const OsdSlot &s = g_osd_slots[0];
         if (s.visible) {
             // Slot 0 = TOP marker: grid_x = center_x, grid_y = center_y - 2
-            // Reconstruct true center pixel position (see constants above):
+            // Reconstruct true center pixel position.
+            // grid → pixel uses the same formula as node.py's init snap:
+            //   pixel = (grid - X_MIN) * frame_width / X_RANGE
             int cx = (s.grid_x - COMPANION_X_MIN) * fw / COMPANION_X_RANGE;
             int cy = s.grid_y * fh / COMPANION_Y_RANGE;
+
+            // Temporary debug: log every ~2s to file (stderr is captured by orchestrator)
+            {
+                static int dbg_cnt = 0;
+                if (++dbg_cnt % 60 == 0) {
+                    FILE *dbg = fopen("/tmp/xhair_debug.log", "a");
+                    if (dbg) {
+                        fprintf(dbg, "[xhair] slot0 gx=%d gy=%d -> px=%d py=%d  (fw=%d fh=%d)\n",
+                                s.grid_x, s.grid_y, cx, cy, fw, fh);
+                        fclose(dbg);
+                    }
+                }
+            }
 
             // Arrow spacing from center (in pixels)
             int gap = cw;   // one character width gap from center
