@@ -178,7 +178,7 @@
           <geometry>
             <mesh>
               <uri>model://shahed_drone/meshes/shahed.glb</uri>
-              <scale>1 1 1</scale>
+              <scale>5 5 5</scale>
             </mesh>
           </geometry>
           <surface>
@@ -218,15 +218,15 @@
 
       <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
         <joint_name>orbit_joint</joint_name>
-        <initial_velocity>0.3</initial_velocity>
+        <initial_velocity>0.05</initial_velocity>
       </plugin>
       <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
         <joint_name>zigzag_joint</joint_name>
-        <initial_velocity>-0.3</initial_velocity>
+        <initial_velocity>-0.0</initial_velocity>
       </plugin>
       <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
         <joint_name>counter_joint</joint_name>
-        <initial_velocity>0.3</initial_velocity>
+        <initial_velocity>0.0</initial_velocity>
       </plugin>
     </model>
 
