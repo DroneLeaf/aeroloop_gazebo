@@ -36,6 +36,7 @@
 #include <thread>
 #include <vector>
 #include <unistd.h>
+#include <sys/wait.h>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -75,6 +76,11 @@ static int  g_osd_server_port = 0;    // 0 = disabled
 static int  g_osd_grid_cols   = 53;   // HD OSD grid columns
 static int  g_osd_grid_rows   = 20;   // HD OSD grid rows
 
+// Raw-frame UDP stream — forks ffmpeg to encode H.264 and send mpegts.
+static std::string g_stream_dest;      // e.g. "10.0.0.87:5000", empty = disabled
+static int         g_stream_fd = -1;   // write-end of pipe to ffmpeg child
+static pid_t       g_stream_pid = -1;  // ffmpeg child PID
+
 // Custom message slots (CUSTOM_MSG0-3 = BF OSD items 81-84)
 struct OsdSlot {
     std::string text;
@@ -87,16 +93,112 @@ static std::mutex g_slot_mutex;
 static OsdSlot    g_osd_slots[4];
 
 // Companion OSD position remapping.
-// LeafFC firmware constrains the aimer to grid_x=[4,30], grid_y=[0,11]
-// to reserve space for arrow markers and status text rows below.
-// Since the renderer handles clipping, we remap that sub-range to fill
-// the entire frame: grid_x=4 → pixel 0, grid_x=30 → pixel fw,
-//                   grid_y=0 → pixel 0, grid_y=11 → pixel fh.
-static const int COMPANION_X_MIN   = 4;   // firmware min grid_x
+// LeafFC BetaflightOSDAimerDrawer uses a 31×16 grid with offsets:
+//   center_grid_x = round(4 + 26 × norm_x)             → range [4, 30]
+//   center_grid_y = round(2 + 11 × norm_y)             → range [2, 13]
+//
+// Three MSP slots are emitted with offsets from the center:
+//   slot 0 (item 81, TOP):    grid_x = center_x,     grid_y = center_y - 2
+//   slot 1 (item 82, MIDDLE): grid_x = center_x - 4, grid_y = center_y
+//   slot 2 (item 83, BOTTOM): grid_x = center_x,     grid_y = center_y + 2
+//
+// We render the crosshair from slot 0 (TOP), reconstructing the true center:
+//   true_center_x = slot0_x                             (no offset in X)
+//   true_center_y = slot0_y + 2                         (undo TOP offset)
+//
+// Inverse mapping to recover normalised position from grid center:
+//   norm_x = (center_x - 4) / 26
+//   norm_y = (center_y - 2) / 11
+//
+// Substituting slot 0 values:
+//   pixel_x = (slot0_x - 4) * fw / 26                  (unchanged)
+//   pixel_y = ((slot0_y + 2) - 2) * fh / 11 = slot0_y * fh / 11
+static const int COMPANION_X_MIN   = 4;   // AIMER_LEFT_OFFSET
 static const int COMPANION_X_RANGE = 26;  // 30 - 4
-static const int COMPANION_Y_MAX   = 11;  // firmware max grid_y
+static const int COMPANION_Y_RANGE = 11;  // usable grid cells in Y (13 - 2)
 
 static void sigHandler(int) { g_running = false; g_cv.notify_all(); }
+
+// ─── Raw LAN stream via ffmpeg child ─────────────────────────────────────────
+
+// Fork ffmpeg to read raw frames on stdin and send H.264 mpegts over UDP.
+// Returns the write-end fd, or -1 on failure.
+static int spawnStreamFfmpeg(uint32_t w, uint32_t h, const char *pix_fmt,
+                             const std::string &dest, pid_t &child_pid)
+{
+    int pipefd[2];
+    if (pipe(pipefd) < 0) {
+        perror("[stream] pipe");
+        return -1;
+    }
+
+    child_pid = fork();
+    if (child_pid < 0) {
+        perror("[stream] fork");
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return -1;
+    }
+
+    if (child_pid == 0) {
+        // Child — becomes ffmpeg
+        close(pipefd[1]);               // close write end
+        dup2(pipefd[0], STDIN_FILENO);  // stdin = read end of pipe
+        close(pipefd[0]);
+
+        char size_buf[32];
+        snprintf(size_buf, sizeof(size_buf), "%ux%u", w, h);
+
+        std::string udp_url = "udp://" + dest + "?pkt_size=1316";
+
+        execlp("ffmpeg", "ffmpeg",
+               "-loglevel", "warning",
+               "-f", "rawvideo",
+               "-pixel_format", pix_fmt,
+               "-video_size", size_buf,
+               "-framerate", "30",
+               "-i", "-",
+               "-an",
+               "-c:v", "libx264",
+               "-preset", "ultrafast",
+               "-tune", "zerolatency",
+               "-pix_fmt", "yuv420p",
+               "-g", "1",
+               "-x264-params", "repeat-headers=1",
+               "-b:v", "4M",
+               "-f", "mpegts",
+               udp_url.c_str(),
+               (char *)nullptr);
+        // execlp only returns on error
+        perror("[stream] execlp ffmpeg");
+        _exit(127);
+    }
+
+    // Parent
+    close(pipefd[0]);  // close read end
+    fprintf(stderr, "[gz_image_bridge] Streaming raw %ux%u %s → udp://%s (ffmpeg pid %d)\n",
+            w, h, pix_fmt, dest.c_str(), (int)child_pid);
+    return pipefd[1];  // write end
+}
+
+static void streamWriteFrame(int fd, const std::string &frame)
+{
+    const char *ptr = frame.data();
+    size_t rem = frame.size();
+    while (rem > 0) {
+        ssize_t n = ::write(fd, ptr, rem);
+        if (n > 0) { ptr += n; rem -= n; }
+        else if (n < 0) {
+            if (errno == EINTR) continue;
+            // ffmpeg died or pipe broke — disable streaming
+            fprintf(stderr, "[stream] write error: %s — disabling stream\n",
+                    strerror(errno));
+            close(fd);
+            g_stream_fd = -1;
+            return;
+        }
+    }
+}
 
 // ─── MSP Protocol ────────────────────────────────────────────────────────────
 
@@ -848,8 +950,10 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
         std::lock_guard<std::mutex> lk(g_slot_mutex);
         const OsdSlot &s = g_osd_slots[0];
         if (s.visible) {
+            // Slot 0 = TOP marker: grid_x = center_x, grid_y = center_y - 2
+            // Reconstruct true center pixel position (see constants above):
             int cx = (s.grid_x - COMPANION_X_MIN) * fw / COMPANION_X_RANGE;
-            int cy = s.grid_y * fh / COMPANION_Y_MAX;
+            int cy = s.grid_y * fh / COMPANION_Y_RANGE;
 
             // Arrow spacing from center (in pixels)
             int gap = cw;   // one character width gap from center
@@ -933,6 +1037,8 @@ int main(int argc, char **argv)
             if (sscanf(argv[++i], "%dx%d", &g_osd_grid_cols, &g_osd_grid_rows) != 2)
                 { g_osd_grid_cols = 53; g_osd_grid_rows = 20; }
         }
+        else if (strcmp(argv[i], "--stream") == 0 && i + 1 < argc)
+            g_stream_dest = argv[++i];
         else if (topic.empty())
             topic = argv[i];
     }
@@ -945,7 +1051,8 @@ int main(int argc, char **argv)
             "  --osd              Enable Betaflight OSD overlay\n"
             "  --msp-port N       MSP TCP port (default: 5762 = UART2)\n"
             "  --osd-server-port N  TCP server for companion OSD (LeafFC)\n"
-            "  --osd-grid WxH     OSD grid size (default: 53x20)\n",
+            "  --osd-grid WxH     OSD grid size (default: 53x20)\n"
+            "  --stream H:P       Stream raw (no OSD) H.264 over UDP to host:port\n",
             argv[0]);
         return 1;
     }
@@ -1015,7 +1122,16 @@ int main(int argc, char **argv)
                 ch_count = 4;
             else
                 ch_count = 3;
+
+            // Spawn ffmpeg stream child now that we know resolution
+            if (!g_stream_dest.empty())
+                g_stream_fd = spawnStreamFfmpeg(g_width, g_height, g_pix_fmt,
+                                               g_stream_dest, g_stream_pid);
         }
+
+        // ── Raw LAN stream (before OSD so frames are clean) ──
+        if (g_stream_fd >= 0)
+            streamWriteFrame(g_stream_fd, frame);
 
         // ── OSD composite (in-place, before write) ──
         if (g_osd_enabled && meta_printed)
@@ -1049,6 +1165,14 @@ int main(int argc, char **argv)
     }
 
     fprintf(stderr, "[gz_image_bridge] Shutting down\n");
+
+    // Clean up stream child
+    if (g_stream_fd >= 0) { close(g_stream_fd); g_stream_fd = -1; }
+    if (g_stream_pid > 0) {
+        kill(g_stream_pid, SIGTERM);
+        waitpid(g_stream_pid, nullptr, 0);
+    }
+
     if (osd_thread.joinable()) osd_thread.join();
     if (osd_server_thread.joinable()) osd_server_thread.join();
     return 0;
