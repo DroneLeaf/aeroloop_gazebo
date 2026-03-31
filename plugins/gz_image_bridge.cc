@@ -47,6 +47,10 @@
 #include <gz/msgs/image.pb.h>
 #include <gz/transport/Node.hh>
 
+#ifdef HAS_SDL2
+#include <SDL2/SDL.h>
+#endif
+
 #include "osd_font.h"
 
 // ─── Global state ────────────────────────────────────────────────────────────
@@ -117,7 +121,18 @@ static const int COMPANION_X_MIN   = 4;   // AIMER_LEFT_OFFSET
 static const int COMPANION_X_RANGE = 26;  // 30 - 4
 static const int COMPANION_Y_RANGE = 11;  // usable grid cells in Y (13 - 2)
 
-static void sigHandler(int) { g_running = false; g_cv.notify_all(); }
+// Direct display mode — renders frames in an SDL2 window instead of piping
+// through ffmpeg.  Eliminates encode/decode overhead for minimum latency.
+static bool g_display_mode = false;
+
+// Non-blocking stream writer thread — prevents companion stream from blocking
+// the main loop.  Uses a single-slot buffer with frame dropping.
+static std::mutex              g_stream_mutex;
+static std::condition_variable g_stream_cv;
+static std::string             g_stream_frame;
+static bool                    g_stream_new_frame = false;
+
+static void sigHandler(int) { g_running = false; g_cv.notify_all(); g_stream_cv.notify_all(); }
 
 // ─── Raw LAN stream via ffmpeg child ─────────────────────────────────────────
 
@@ -199,6 +214,109 @@ static void streamWriteFrame(int fd, const std::string &frame)
         }
     }
 }
+
+// ─── Non-blocking stream writer thread ───────────────────────────────────────
+
+static void streamWriterThread()
+{
+    while (g_running)
+    {
+        std::string frame;
+        {
+            std::unique_lock<std::mutex> lk(g_stream_mutex);
+            g_stream_cv.wait_for(lk, std::chrono::milliseconds(100),
+                                 [] { return g_stream_new_frame || !g_running; });
+            if (!g_stream_new_frame) continue;
+            frame.swap(g_stream_frame);
+            g_stream_new_frame = false;
+        }
+        if (g_stream_fd >= 0)
+            streamWriteFrame(g_stream_fd, frame);
+    }
+}
+
+// ─── SDL2 Direct Display ─────────────────────────────────────────────────────
+
+#ifdef HAS_SDL2
+
+static SDL_Window   *g_sdl_window   = nullptr;
+static SDL_Renderer *g_sdl_renderer = nullptr;
+static SDL_Texture  *g_sdl_texture  = nullptr;
+
+static Uint32 sdlPixelFormat(const char *pf)
+{
+    if (strcmp(pf, "rgba")  == 0) return SDL_PIXELFORMAT_RGBA32;
+    if (strcmp(pf, "bgr24") == 0) return SDL_PIXELFORMAT_BGR24;
+    if (strcmp(pf, "bgra")  == 0) return SDL_PIXELFORMAT_BGRA32;
+    return SDL_PIXELFORMAT_RGB24;
+}
+
+static bool initDisplay(uint32_t w, uint32_t h, const char *pf)
+{
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+        fprintf(stderr, "[display] SDL_Init failed: %s\n", SDL_GetError());
+        return false;
+    }
+
+    g_sdl_window = SDL_CreateWindow(
+        "FPV", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        static_cast<int>(w), static_cast<int>(h),
+        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+    if (!g_sdl_window) {
+        fprintf(stderr, "[display] CreateWindow failed: %s\n", SDL_GetError());
+        SDL_Quit();
+        return false;
+    }
+
+    // No VSYNC — minimum latency (tearing is acceptable for FPV)
+    g_sdl_renderer = SDL_CreateRenderer(g_sdl_window, -1,
+                                        SDL_RENDERER_ACCELERATED);
+    if (!g_sdl_renderer) {
+        fprintf(stderr, "[display] CreateRenderer failed: %s\n", SDL_GetError());
+        SDL_DestroyWindow(g_sdl_window);
+        SDL_Quit();
+        return false;
+    }
+
+    g_sdl_texture = SDL_CreateTexture(g_sdl_renderer, sdlPixelFormat(pf),
+                                      SDL_TEXTUREACCESS_STREAMING,
+                                      static_cast<int>(w), static_cast<int>(h));
+    if (!g_sdl_texture) {
+        fprintf(stderr, "[display] CreateTexture failed: %s\n", SDL_GetError());
+        SDL_DestroyRenderer(g_sdl_renderer);
+        SDL_DestroyWindow(g_sdl_window);
+        SDL_Quit();
+        return false;
+    }
+
+    fprintf(stderr, "[display] SDL2 direct display %ux%u %s (zero-latency)\n",
+            w, h, pf);
+    return true;
+}
+
+static void displayFrame(const uint8_t *data, uint32_t w, int ch)
+{
+    SDL_UpdateTexture(g_sdl_texture, nullptr, data,
+                      static_cast<int>(w) * ch);
+    SDL_RenderClear(g_sdl_renderer);
+    SDL_RenderCopy(g_sdl_renderer, g_sdl_texture, nullptr, nullptr);
+    SDL_RenderPresent(g_sdl_renderer);
+
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_QUIT) g_running = false;
+    }
+}
+
+static void cleanupDisplay()
+{
+    if (g_sdl_texture)  SDL_DestroyTexture(g_sdl_texture);
+    if (g_sdl_renderer) SDL_DestroyRenderer(g_sdl_renderer);
+    if (g_sdl_window)   SDL_DestroyWindow(g_sdl_window);
+    SDL_Quit();
+}
+
+#endif // HAS_SDL2
 
 // ─── MSP Protocol ────────────────────────────────────────────────────────────
 
@@ -1039,6 +1157,8 @@ int main(int argc, char **argv)
         }
         else if (strcmp(argv[i], "--stream") == 0 && i + 1 < argc)
             g_stream_dest = argv[++i];
+        else if (strcmp(argv[i], "--display") == 0)
+            g_display_mode = true;
         else if (topic.empty())
             topic = argv[i];
     }
@@ -1052,7 +1172,8 @@ int main(int argc, char **argv)
             "  --msp-port N       MSP TCP port (default: 5762 = UART2)\n"
             "  --osd-server-port N  TCP server for companion OSD (LeafFC)\n"
             "  --osd-grid WxH     OSD grid size (default: 53x20)\n"
-            "  --stream H:P       Stream raw (no OSD) H.264 over UDP to host:port\n",
+            "  --stream H:P       Stream raw (no OSD) H.264 over UDP to host:port\n"
+            "  --display          Render in SDL2 window (zero-latency, no stdout)\n",
             argv[0]);
         return 1;
     }
@@ -1077,6 +1198,21 @@ int main(int argc, char **argv)
         osd_server_thread = std::thread(osdServerThread);
     }
 
+    // Start non-blocking stream writer thread
+    std::thread stream_thread;
+    if (!g_stream_dest.empty())
+        stream_thread = std::thread(streamWriterThread);
+
+#ifdef HAS_SDL2
+    if (g_display_mode)
+        fprintf(stderr, "[gz_image_bridge] Direct display mode (SDL2)\n");
+#else
+    if (g_display_mode) {
+        fprintf(stderr, "[gz_image_bridge] --display requires SDL2 (compile with -DHAS_SDL2)\n");
+        return 1;
+    }
+#endif
+
     gz::transport::Node node;
 
     if (!node.Subscribe(topic, onImage))
@@ -1096,9 +1232,9 @@ int main(int argc, char **argv)
     // Determine channel count once metadata is ready.
     int ch_count = 3;
 
-    // Writer loop — pulls the latest frame and writes it to stdout.
-    // If stdout blocks (ffmpeg waiting for TCP client), the mutex is released
-    // so the callback can keep overwriting the buffer with fresh frames.
+    // Writer loop — pulls the latest frame and writes/displays it.
+    // The callback keeps overwriting g_frame_data with the newest image,
+    // so we never accumulate a backlog regardless of output speed.
     while (g_running)
     {
         std::string frame;
@@ -1127,13 +1263,29 @@ int main(int argc, char **argv)
             if (!g_stream_dest.empty())
                 g_stream_fd = spawnStreamFfmpeg(g_width, g_height, g_pix_fmt,
                                                g_stream_dest, g_stream_pid);
+
+#ifdef HAS_SDL2
+            // Initialize SDL2 display once we know the frame dimensions
+            if (g_display_mode) {
+                if (!initDisplay(g_width, g_height, g_pix_fmt)) {
+                    fprintf(stderr, "[display] Failed to init — falling back to stdout\n");
+                    g_display_mode = false;
+                }
+            }
+#endif
         }
 
         // ── Raw LAN stream (before OSD so frames are clean) ──
+        // Hand off to the dedicated stream writer thread (non-blocking).
         if (g_stream_fd >= 0)
-            streamWriteFrame(g_stream_fd, frame);
+        {
+            std::lock_guard<std::mutex> lk(g_stream_mutex);
+            g_stream_frame = frame;   // copy pre-OSD frame
+            g_stream_new_frame = true;
+            g_stream_cv.notify_one();
+        }
 
-        // ── OSD composite (in-place, before write) ──
+        // ── OSD composite (in-place, before display/write) ──
         if (g_osd_enabled && meta_printed)
         {
             uint8_t *pixels = reinterpret_cast<uint8_t*>(frame.data());
@@ -1141,9 +1293,17 @@ int main(int argc, char **argv)
                       static_cast<int>(g_height), ch_count);
         }
 
-        // Blocking write — while we're stuck here the callback keeps
-        // overwriting g_frame_data with the newest image, so we never
-        // accumulate a backlog.
+#ifdef HAS_SDL2
+        // ── Direct display: upload texture and present (sub-millisecond) ──
+        if (g_display_mode && g_sdl_texture)
+        {
+            displayFrame(reinterpret_cast<const uint8_t*>(frame.data()),
+                         g_width, ch_count);
+            continue;   // skip stdout — display is the output
+        }
+#endif
+
+        // ── Stdout pipe to ffmpeg (original path) ──
         const char *ptr = frame.data();
         size_t remaining = frame.size();
         while (remaining > 0 && g_running)
@@ -1165,6 +1325,14 @@ int main(int argc, char **argv)
     }
 
     fprintf(stderr, "[gz_image_bridge] Shutting down\n");
+
+#ifdef HAS_SDL2
+    if (g_display_mode) cleanupDisplay();
+#endif
+
+    // Stop stream writer thread
+    g_stream_cv.notify_all();
+    if (stream_thread.joinable()) stream_thread.join();
 
     // Clean up stream child
     if (g_stream_fd >= 0) { close(g_stream_fd); g_stream_fd = -1; }

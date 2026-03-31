@@ -39,6 +39,9 @@ target_link_libraries(RotorVisualPlugin
 find_package(gz-transport13 REQUIRED)
 find_package(gz-msgs10 REQUIRED)
 
+# SDL2 for zero-latency direct display mode (--display flag)
+find_package(SDL2 QUIET)
+
 add_executable(gz_image_bridge gz_image_bridge.cc)
 set_property(TARGET gz_image_bridge PROPERTY CXX_STANDARD 17)
 target_link_libraries(gz_image_bridge
@@ -47,3 +50,11 @@ target_link_libraries(gz_image_bridge
     gz-msgs10::gz-msgs10
     pthread
 )
+
+if(SDL2_FOUND)
+  target_compile_definitions(gz_image_bridge PRIVATE HAS_SDL2)
+  target_link_libraries(gz_image_bridge PRIVATE SDL2::SDL2)
+  message(STATUS "SDL2 found — gz_image_bridge --display mode enabled")
+else()
+  message(STATUS "SDL2 not found — gz_image_bridge --display mode disabled (install libsdl2-dev)")
+endif()
