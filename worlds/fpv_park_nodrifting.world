@@ -43,29 +43,29 @@
     <include>
       <uri>model://baylands_terrain</uri>
       <name>baylands_terrain1</name>
-      <pose>-35 177 -1.922 0 0 0</pose>
+      <pose>-35 177 -0.1 0 0 0</pose>
     </include>
     <include>
       <uri>model://baylands_terrain</uri>
       <name>baylands_terrain2</name>
-      <pose>600 146 -2.37 0 0 0</pose>
+      <pose>600 146 -0.548 0 0 0</pose>
     </include>
     <include>
       <uri>model://baylands_terrain</uri>
       <name>baylands_terrain3</name>
-      <pose>55.68 329.6 -2.24 0 0 -3.14</pose>
+      <pose>55.68 329.6 -0.418 0 0 -3.14</pose>
     </include>
     <include>
       <uri>model://baylands_terrain</uri>
       <name>baylands_terrain4</name>
-      <pose>259.4 -514.32 -3.044 0 0 3.14</pose>
+      <pose>259.4 -514.32 -1.222 0 0 3.14</pose>
     </include>
 
     <!-- Rocket drone vehicle -->
     <include>
       <uri>model://rocket_drone</uri>
       <name>betaflight_vehicle</name>
-      <pose>0 0 0.3 0 0 0</pose>
+      <pose>0 0 1.1 0 0 0</pose>
     </include>
 
     <!-- Moving target: slides back and forth along X axis -->
