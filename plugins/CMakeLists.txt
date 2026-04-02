@@ -49,6 +49,7 @@ target_link_libraries(gz_image_bridge
     gz-transport13::gz-transport13
     gz-msgs10::gz-msgs10
     pthread
+    rt
 )
 
 if(SDL2_FOUND)
