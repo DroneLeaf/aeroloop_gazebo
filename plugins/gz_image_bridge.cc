@@ -17,7 +17,7 @@
  *
  * OSD overlay (optional):
  *   When --osd is given, a background thread connects to Betaflight SITL
- *   via MSP over TCP (default port 5762 = UART2) and queries telemetry at
+ *   via MSP over TCP (default port 5763 = UART3) and queries telemetry at
  *   ~10 Hz.  Each camera frame is composited with an FPV-style OSD before
  *   being written to stdout.  The overlay includes battery voltage, current,
  *   RSSI, flight mode, altitude, throttle, heading, GPS satellites, and
@@ -75,54 +75,12 @@ static const char *g_pix_fmt = "rgb24";
 
 // OSD configuration
 static bool g_osd_enabled = false;
-static int  g_msp_port    = 5762;   // UART2 by default (5760 + uart_number)
-
-// Companion OSD server — receives MSP V1/V2 from LeafFC/HEAR to render
-// BetaflightOSDAimerDrawer and BetaflightOSDStatusTextDrawer items.
-static int  g_osd_server_port = 0;    // 0 = disabled
-static int  g_osd_grid_cols   = 53;   // HD OSD grid columns
-static int  g_osd_grid_rows   = 20;   // HD OSD grid rows
+static int  g_msp_port    = 5763;   // UART3 by default (5760 + uart_number)
 
 // Raw-frame UDP stream — forks ffmpeg to encode H.264 and send mpegts.
 static std::string g_stream_dest;      // e.g. "10.0.0.87:5000", empty = disabled
 static int         g_stream_fd = -1;   // write-end of pipe to ffmpeg child
 static pid_t       g_stream_pid = -1;  // ffmpeg child PID
-
-// Custom message slots (CUSTOM_MSG0-3 = BF OSD items 81-84)
-struct OsdSlot {
-    std::string text;
-    uint8_t grid_x = 0;
-    uint8_t grid_y = 0;
-    bool visible = false;
-};
-
-static std::mutex g_slot_mutex;
-static OsdSlot    g_osd_slots[4];
-
-// Companion OSD position remapping.
-// LeafFC BetaflightOSDAimerDrawer uses a 31×16 grid with offsets:
-//   center_grid_x = round(4 + 26 × norm_x)             → range [4, 30]
-//   center_grid_y = round(2 + 11 × norm_y)             → range [2, 13]
-//
-// Three MSP slots are emitted with offsets from the center:
-//   slot 0 (item 81, TOP):    grid_x = center_x,     grid_y = center_y - 2
-//   slot 1 (item 82, MIDDLE): grid_x = center_x - 4, grid_y = center_y
-//   slot 2 (item 83, BOTTOM): grid_x = center_x,     grid_y = center_y + 2
-//
-// We render the crosshair from slot 0 (TOP), reconstructing the true center:
-//   true_center_x = slot0_x                             (no offset in X)
-//   true_center_y = slot0_y + 2                         (undo TOP offset)
-//
-// Inverse mapping to recover normalised position from grid center:
-//   norm_x = (center_x - 4) / 26
-//   norm_y = (center_y - 2) / 11
-//
-// Substituting slot 0 values:
-//   pixel_x = (slot0_x - 4) * fw / 26                  (unchanged)
-//   pixel_y = ((slot0_y + 2) - 2) * fh / 11 = slot0_y * fh / 11
-static const int COMPANION_X_MIN   = 4;   // AIMER_LEFT_OFFSET
-static const int COMPANION_X_RANGE = 26;  // 30 - 4
-static const int COMPANION_Y_RANGE = 11;  // usable grid cells in Y (13 - 2)
 
 // Direct display mode — renders frames in an SDL2 window instead of piping
 // through ffmpeg.  Eliminates encode/decode overhead for minimum latency.
@@ -747,264 +705,6 @@ static void mspThread()
     }
 }
 
-// ─── Companion OSD Server ─────────────────────────────────────────────────────
-//
-// TCP server receiving MSP frames from a companion computer (LeafFC/HEAR).
-//   MSP V1 cmd 85  (MSP_SET_OSD_CONFIG) : item position / visibility
-//   MSP V2 cmd 0x3007 (MSP2_SET_TEXT)   : custom text content
-//
-// Aimer slots 0-2 (items 81-83), status text slot 3 (item 84).
-
-static uint8_t crc8_dvb_s2(uint8_t crc, uint8_t b)
-{
-    crc ^= b;
-    for (int i = 0; i < 8; i++)
-        crc = (crc & 0x80) ? static_cast<uint8_t>((crc << 1) ^ 0xD5)
-                           : static_cast<uint8_t>(crc << 1);
-    return crc;
-}
-
-// Decode a Betaflight OSD font-encoded byte back to printable ASCII.
-static char decodeOsdByte(uint8_t b)
-{
-    switch (b) {
-    case 0x17: return '-';   // LINE
-    case 0x20: return ' ';   // BLANK
-    case 0x60: return 'v';   // DOWN arrow
-    case 0x64: return '>';   // RIGHT arrow
-    case 0x68: return '^';   // UP arrow
-    case 0x6C: return '<';   // LEFT arrow
-    }
-    // Undo the -32 font shift applied by encodeTextWithTokens
-    uint8_t ascii = b + 32;
-    if (ascii >= 0x20 && ascii <= 0x7E) return static_cast<char>(ascii);
-    return '?';
-}
-
-// Decode BF encoded OSD position (6-bit x, 5-bit y, 1-bit visibility).
-static void decodeOsdPos(uint16_t enc, uint8_t &x, uint8_t &y, bool &vis)
-{
-    x   = static_cast<uint8_t>((enc & 0x1F) | (((enc >> 10) & 1) << 5));
-    y   = static_cast<uint8_t>((enc >> 5) & 0x1F);
-    vis = ((enc >> 11) & 1) != 0;
-}
-
-static void sendMspV1Ack(int sock, uint8_t cmd)
-{
-    uint8_t buf[6] = {'$', 'M', '>', 0, cmd, cmd};
-    ::send(sock, buf, 6, MSG_NOSIGNAL | MSG_DONTWAIT);
-}
-
-static void sendMspV2Ack(int sock, uint8_t flags, uint16_t cmd)
-{
-    uint8_t buf[9];
-    buf[0] = '$'; buf[1] = 'X'; buf[2] = '>';
-    buf[3] = flags;
-    buf[4] = static_cast<uint8_t>(cmd & 0xFF);
-    buf[5] = static_cast<uint8_t>((cmd >> 8) & 0xFF);
-    buf[6] = 0; buf[7] = 0;
-    uint8_t crc = 0;
-    for (int i = 3; i < 8; i++) crc = crc8_dvb_s2(crc, buf[i]);
-    buf[8] = crc;
-    ::send(sock, buf, 9, MSG_NOSIGNAL | MSG_DONTWAIT);
-}
-
-static void handleCompanionMspV1(int sock, uint8_t cmd,
-                                  const uint8_t *payload, int len)
-{
-    if (cmd == 85 && len >= 3) {   // MSP_SET_OSD_CONFIG
-        uint8_t item = payload[0];
-        if (item >= 81 && item <= 84) {
-            uint16_t pos = payload[1] | (static_cast<uint16_t>(payload[2]) << 8);
-            uint8_t gx, gy; bool vis;
-            decodeOsdPos(pos, gx, gy, vis);
-            std::lock_guard<std::mutex> lk(g_slot_mutex);
-            g_osd_slots[item - 81].grid_x  = gx;
-            g_osd_slots[item - 81].grid_y  = gy;
-            g_osd_slots[item - 81].visible = vis;
-        }
-    }
-    sendMspV1Ack(sock, cmd);
-}
-
-static void handleCompanionMspV2(int sock, uint8_t flags, uint16_t cmd,
-                                  const uint8_t *payload, int len)
-{
-    // MSP_SET_OSD_CONFIG (85 / 0x0055) — may arrive via V2 framing
-    if (cmd == 85 && len >= 3) {
-        uint8_t item = payload[0];
-        if (item >= 81 && item <= 84) {
-            uint16_t pos = payload[1] | (static_cast<uint16_t>(payload[2]) << 8);
-            uint8_t gx, gy; bool vis;
-            decodeOsdPos(pos, gx, gy, vis);
-            std::lock_guard<std::mutex> lk(g_slot_mutex);
-            g_osd_slots[item - 81].grid_x  = gx;
-            g_osd_slots[item - 81].grid_y  = gy;
-            g_osd_slots[item - 81].visible = vis;
-        }
-        sendMspV2Ack(sock, flags, cmd);
-        return;
-    }
-    if (cmd == 0x3007 && len >= 2) {   // MSP2_SET_TEXT
-        uint8_t text_type = payload[0];
-        uint8_t text_len  = payload[1];
-        if (text_type >= 7 && text_type <= 10 &&
-            len >= 2 + static_cast<int>(text_len)) {
-            int slot = text_type - 7;
-            std::string decoded;
-            decoded.reserve(text_len);
-            for (int i = 0; i < text_len; i++)
-                decoded.push_back(decodeOsdByte(payload[2 + i]));
-            std::lock_guard<std::mutex> lk(g_slot_mutex);
-            g_osd_slots[slot].text = std::move(decoded);
-        }
-    }
-    sendMspV2Ack(sock, flags, cmd);
-}
-
-static void osdServerThread()
-{
-    int srv = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (srv < 0) { perror("[OSD-Server] socket"); return; }
-
-    int opt = 1;
-    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-    struct sockaddr_in sa{};
-    sa.sin_family      = AF_INET;
-    sa.sin_port        = htons(static_cast<uint16_t>(g_osd_server_port));
-    sa.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    if (::bind(srv, reinterpret_cast<struct sockaddr*>(&sa), sizeof(sa)) < 0) {
-        fprintf(stderr, "[OSD-Server] bind(%d) failed\n", g_osd_server_port);
-        ::close(srv);
-        return;
-    }
-    ::listen(srv, 1);
-    fprintf(stderr, "[OSD-Server] Listening on port %d for companion OSD\n",
-            g_osd_server_port);
-
-    while (g_running)
-    {
-        struct pollfd pfd = {srv, POLLIN, 0};
-        if (::poll(&pfd, 1, 1000) <= 0) continue;
-
-        int client = ::accept(srv, nullptr, nullptr);
-        if (client < 0) continue;
-
-        int one = 1;
-        setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-        fprintf(stderr, "[OSD-Server] Companion connected\n");
-
-        // MSP V1+V2 byte-level parser
-        enum PS {
-            IDLE, H1, H2,
-            V1_SZ, V1_CMD, V1_PL, V1_CK,
-            V2_FL, V2_C1, V2_C2, V2_S1, V2_S2, V2_PL, V2_CK
-        } ps = IDLE;
-        uint8_t  proto = 0;
-        uint8_t  v1sz = 0, v1cmd = 0, v1ck = 0;
-        uint8_t  v2fl = 0, v2crc = 0;
-        uint16_t v2cmd = 0, v2sz = 0;
-        std::vector<uint8_t> pbuf;
-
-        while (g_running)
-        {
-            struct pollfd cpfd = {client, POLLIN, 0};
-            int pr = ::poll(&cpfd, 1, 10);
-            if (pr < 0) { if (errno == EINTR) continue; break; }
-            if (pr == 0) continue;
-
-            uint8_t chunk[512];
-            ssize_t nr = ::recv(client, chunk, sizeof(chunk), 0);
-            if (nr <= 0) break;
-
-            for (ssize_t bi = 0; bi < nr; bi++)
-            {
-                uint8_t b = chunk[bi];
-                switch (ps) {
-                case IDLE:
-                    if (b == '$') ps = H1;
-                    break;
-                case H1:
-                    if      (b == 'M') { proto = 1; ps = H2; }
-                    else if (b == 'X') { proto = 2; ps = H2; }
-                    else ps = IDLE;
-                    break;
-                case H2:
-                    if (b == '<') ps = (proto == 1) ? V1_SZ : V2_FL;
-                    else ps = IDLE;
-                    break;
-
-                // MSP V1
-                case V1_SZ:
-                    v1sz = b; v1ck = b; pbuf.clear(); pbuf.reserve(v1sz);
-                    ps = V1_CMD;
-                    break;
-                case V1_CMD:
-                    v1cmd = b; v1ck ^= b;
-                    ps = (v1sz > 0) ? V1_PL : V1_CK;
-                    break;
-                case V1_PL:
-                    pbuf.push_back(b); v1ck ^= b;
-                    if (pbuf.size() >= v1sz) ps = V1_CK;
-                    break;
-                case V1_CK:
-                    if (b == v1ck)
-                        handleCompanionMspV1(client, v1cmd, pbuf.data(),
-                                             static_cast<int>(pbuf.size()));
-                    ps = IDLE;
-                    break;
-
-                // MSP V2
-                case V2_FL:
-                    v2fl = b; v2crc = 0; v2crc = crc8_dvb_s2(v2crc, b);
-                    ps = V2_C1;
-                    break;
-                case V2_C1:
-                    v2cmd = b; v2crc = crc8_dvb_s2(v2crc, b);
-                    ps = V2_C2;
-                    break;
-                case V2_C2:
-                    v2cmd |= (static_cast<uint16_t>(b) << 8);
-                    v2crc = crc8_dvb_s2(v2crc, b);
-                    ps = V2_S1;
-                    break;
-                case V2_S1:
-                    v2sz = b; v2crc = crc8_dvb_s2(v2crc, b);
-                    ps = V2_S2;
-                    break;
-                case V2_S2:
-                    v2sz |= (static_cast<uint16_t>(b) << 8);
-                    v2crc = crc8_dvb_s2(v2crc, b);
-                    pbuf.clear(); pbuf.reserve(v2sz);
-                    ps = (v2sz > 0) ? V2_PL : V2_CK;
-                    break;
-                case V2_PL:
-                    pbuf.push_back(b); v2crc = crc8_dvb_s2(v2crc, b);
-                    if (pbuf.size() >= v2sz) ps = V2_CK;
-                    break;
-                case V2_CK:
-                    if (b == v2crc)
-                        handleCompanionMspV2(client, v2fl, v2cmd, pbuf.data(),
-                                             static_cast<int>(pbuf.size()));
-                    ps = IDLE;
-                    break;
-                }
-            }
-        }
-
-        ::close(client);
-        fprintf(stderr, "[OSD-Server] Companion disconnected\n");
-        {
-            std::lock_guard<std::mutex> lk(g_slot_mutex);
-            for (auto &s : g_osd_slots) { s.visible = false; s.text.clear(); }
-        }
-    }
-
-    ::close(srv);
-}
-
 // ─── OSD Rendering ───────────────────────────────────────────────────────────
 
 // Draw a single 8×8 glyph scaled by `scale`, in the given color.
@@ -1201,60 +901,6 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
     int hclen = static_cast<int>(strlen(buf));
     drawElem(frame, fw, fh, ch_count,
              (fw - hclen * cw) / 2, fh - margin - ch, buf, scale);
-
-    // ── Companion OSD: ASCII crosshair from LeafFC aimer position ──
-    // Always render hardcoded arrow markers around slot 0 (item 81).
-    // Markers that extend past frame edges clip naturally via drawChar
-    // pixel bounds checks — no clamping, so the aimer can reach any edge.
-    if (g_osd_server_port > 0)
-    {
-        std::lock_guard<std::mutex> lk(g_slot_mutex);
-        const OsdSlot &s = g_osd_slots[0];
-        if (s.visible) {
-            // Slot 0 = TOP marker: grid_x = center_x, grid_y = center_y - 2
-            // Reconstruct true center pixel position.
-            // grid → pixel uses the same formula as node.py's init snap:
-            //   pixel = (grid - X_MIN) * frame_width / X_RANGE
-            int cx = (s.grid_x - COMPANION_X_MIN) * fw / COMPANION_X_RANGE;
-            int cy = s.grid_y * fh / COMPANION_Y_RANGE;
-
-            // Temporary debug: log every ~2s to file (stderr is captured by orchestrator)
-            {
-                static int dbg_cnt = 0;
-                if (++dbg_cnt % 60 == 0) {
-                    FILE *dbg = fopen("/tmp/xhair_debug.log", "a");
-                    if (dbg) {
-                        fprintf(dbg, "[xhair] slot0 gx=%d gy=%d -> px=%d py=%d  (fw=%d fh=%d)\n",
-                                s.grid_x, s.grid_y, cx, cy, fw, fh);
-                        fclose(dbg);
-                    }
-                }
-            }
-
-            // Arrow spacing from center (in pixels)
-            int gap = cw;   // one character width gap from center
-
-            // "v" above center
-            drawOsdStr(frame, fw, fh, ch_count,
-                       cx - cw / 2, cy - gap - ch, "v", scale, 0, 255, 0);
-            // "^" below center
-            drawOsdStr(frame, fw, fh, ch_count,
-                       cx - cw / 2, cy + gap, "^", scale, 0, 255, 0);
-            // "-->" left of center, pointing right
-            {
-                const char *arrow = "-->";
-                int aw = 3 * cw;
-                drawOsdStr(frame, fw, fh, ch_count,
-                           cx - gap - aw, cy - ch / 2, arrow, scale, 0, 255, 0);
-            }
-            // "<--" right of center, pointing left
-            {
-                const char *arrow = "<--";
-                drawOsdStr(frame, fw, fh, ch_count,
-                           cx + gap, cy - ch / 2, arrow, scale, 0, 255, 0);
-            }
-        }
-    }
 }
 
 // ─── Gazebo image callback ───────────────────────────────────────────────────
@@ -1306,13 +952,6 @@ int main(int argc, char **argv)
             g_osd_enabled = true;
         else if (strcmp(argv[i], "--msp-port") == 0 && i + 1 < argc)
             g_msp_port = atoi(argv[++i]);
-        else if (strcmp(argv[i], "--osd-server-port") == 0 && i + 1 < argc)
-            g_osd_server_port = atoi(argv[++i]);
-        else if (strcmp(argv[i], "--osd-grid") == 0 && i + 1 < argc)
-        {
-            if (sscanf(argv[++i], "%dx%d", &g_osd_grid_cols, &g_osd_grid_rows) != 2)
-                { g_osd_grid_cols = 53; g_osd_grid_rows = 20; }
-        }
         else if (strcmp(argv[i], "--stream") == 0 && i + 1 < argc)
             g_stream_dest = argv[++i];
         else if (strcmp(argv[i], "--display") == 0)
@@ -1327,11 +966,8 @@ int main(int argc, char **argv)
     {
         fprintf(stderr,
             "Usage: %s <image_topic> [--osd [--msp-port PORT]]\n"
-            "       [--osd-server-port PORT [--osd-grid WxH]]\n"
             "  --osd              Enable Betaflight OSD overlay\n"
-            "  --msp-port N       MSP TCP port (default: 5762 = UART2)\n"
-            "  --osd-server-port N  TCP server for companion OSD (LeafFC)\n"
-            "  --osd-grid WxH     OSD grid size (default: 53x20)\n"
+            "  --msp-port N       MSP TCP port (default: 5763 = UART3)\n"
             "  --stream H:P       Stream raw (no OSD) H.264 over UDP to host:port\n"
             "  --display          Render in SDL2 window (zero-latency, no stdout)\n"
             "  --shm              Expose latest frame via POSIX shared memory\n",
@@ -1348,15 +984,6 @@ int main(int argc, char **argv)
     {
         fprintf(stderr, "[gz_image_bridge] OSD enabled — MSP port %d\n", g_msp_port);
         osd_thread = std::thread(mspThread);
-    }
-
-    // Start companion OSD server if configured
-    std::thread osd_server_thread;
-    if (g_osd_server_port > 0)
-    {
-        fprintf(stderr, "[gz_image_bridge] Companion OSD server on port %d (grid %dx%d)\n",
-                g_osd_server_port, g_osd_grid_cols, g_osd_grid_rows);
-        osd_server_thread = std::thread(osdServerThread);
     }
 
     // Start non-blocking stream writer thread
@@ -1525,6 +1152,5 @@ int main(int argc, char **argv)
     cleanupShm();
 
     if (osd_thread.joinable()) osd_thread.join();
-    if (osd_server_thread.joinable()) osd_server_thread.join();
     return 0;
 }
