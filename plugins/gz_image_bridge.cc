@@ -859,20 +859,27 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
     else
         drawElem(frame, fw, fh, ch_count, mx, margin, mode, scale, 255, 200, 50);
 
-    // ── Top-center row 2: AUX1 mode (MANUAL / TARGET / FIRE) ──
-    const char *aux1_mode = "MANUAL";
-    uint8_t aux1_r = 200, aux1_g = 200, aux1_b = 200;
-    if (t.num_channels >= 5)
+    // ── Top-center row 2: CH6 guidance mode (MANUAL / TERMINAL) ──
+    const char *guide_mode = "MANUAL";
+    uint8_t gm_r = 200, gm_g = 200, gm_b = 200;
+    if (t.num_channels >= 6 && t.channels[5] > 2000)
     {
-        uint16_t aux1 = t.channels[4];
-        if (aux1 > 1700)      { aux1_mode = "FIRE";   aux1_r = 255; aux1_g = 60;  aux1_b = 60;  }
-        else if (aux1 > 1300) { aux1_mode = "TARGET"; aux1_r = 255; aux1_g = 200; aux1_b = 50;  }
-        else                  { aux1_mode = "MANUAL"; aux1_r = 200; aux1_g = 200; aux1_b = 200; }
+        guide_mode = "TERMINAL"; gm_r = 255; gm_g = 60; gm_b = 60;
     }
-    int a1len = static_cast<int>(strlen(aux1_mode));
-    int a1x = (fw - a1len * cw) / 2;
-    drawElem(frame, fw, fh, ch_count, a1x, margin + ch + 2, aux1_mode, scale,
-             aux1_r, aux1_g, aux1_b);
+    int gmlen = static_cast<int>(strlen(guide_mode));
+    int gmx = (fw - gmlen * cw) / 2;
+    drawElem(frame, fw, fh, ch_count, gmx, margin + ch + 2, guide_mode, scale,
+             gm_r, gm_g, gm_b);
+
+    // ── Top-center row 3: CH9 lock status (shown only when active) ──
+    if (t.num_channels >= 9 && t.channels[8] > 2000)
+    {
+        const char *lock_label = "LOCK";
+        int lklen = static_cast<int>(strlen(lock_label));
+        int lkx = (fw - lklen * cw) / 2;
+        drawElem(frame, fw, fh, ch_count, lkx, margin + (ch + 2) * 2, lock_label, scale,
+                 255, 200, 50);
+    }
 
     // ── Center: crosshair ──
     drawOsdStr(frame, fw, fh, ch_count,
