@@ -7,8 +7,9 @@ to model joint forces and returns FDM state (UDP 9003).
 
 ## gz_image_bridge
 
-Subscribes to a Gazebo camera image topic via gz-transport and writes raw RGB
-frames to stdout for piping into ffmpeg or ffplay.
+Subscribes to a Gazebo camera image topic via gz-transport and renders
+frames in an SDL2 window (`--display`), optionally exposing them via POSIX
+shared memory (`--shm`).
 
 Features:
 - **Single-slot latest-frame buffer** — never accumulates latency; old frames are
