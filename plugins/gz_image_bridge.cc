@@ -8,20 +8,20 @@
  * silently dropped instead of accumulating unbounded latency.
  *
  * Usage:
- *   gz_image_bridge <image_topic> [--osd [--msp-port PORT]]
+ *   gz_image_bridge <image_topic> [--msp-port PORT]
  *
  * First frame metadata is printed to stderr:
  *   IMGMETA <width> <height> <pix_fmt>
  *
  * pix_fmt values match ffmpeg names: rgb24, rgba, bgr24, bgra
  *
- * OSD overlay (optional):
- *   When --osd is given, a background thread connects to Betaflight SITL
- *   via MSP over TCP (default port 5763 = UART3) and queries telemetry at
- *   ~10 Hz.  Each camera frame is composited with an FPV-style OSD before
- *   being written to stdout.  The overlay includes battery voltage, current,
- *   RSSI, flight mode, altitude, throttle, heading, GPS satellites, and
- *   flight timer.
+ * OSD overlay (always enabled):
+ *   A background thread connects to Betaflight SITL via MSP over TCP
+ *   (default port 5763 = UART3) and queries telemetry at ~10 Hz.  Each
+ *   camera frame is composited with an FPV-style OSD before being written
+ *   to stdout.  The overlay includes battery voltage, current, RSSI,
+ *   flight mode, altitude, throttle, heading, GPS satellites, and flight
+ *   timer.  If Betaflight is not running, the OSD elements remain blank.
  */
 
 #include <algorithm>
@@ -74,7 +74,7 @@ static uint32_t g_height = 0;
 static const char *g_pix_fmt = "rgb24";
 
 // OSD configuration
-static bool g_osd_enabled = false;
+static bool g_osd_enabled = true;   // OSD always enabled
 static int  g_msp_port    = 5763;   // UART3 by default (5760 + uart_number)
 
 // Raw-frame UDP stream — forks ffmpeg to encode H.264 and send mpegts.
@@ -92,12 +92,8 @@ static bool g_display_mode = false;
 // with zero encoding overhead and zero accumulating latency.
 //
 // Layout:  ShmHeader (64 bytes) + raw pixel data
-// Name:    /gz_cam_<sanitised_topic>
-static bool        g_shm_enabled = false;
-static std::string g_shm_name;           // "/gz_cam_..."
-static int         g_shm_fd     = -1;
-static uint8_t    *g_shm_ptr    = nullptr;
-static size_t      g_shm_size   = 0;
+// Names:   /gz_cam_<sanitised_topic>       — clean frame (no OSD, always active)
+//          /gz_cam_<sanitised_topic>_osd   — post-OSD frame (always active)
 
 struct ShmHeader {
     uint32_t magic;          // 0x475A4652 = "GZFR"
@@ -112,6 +108,16 @@ struct ShmHeader {
     char     _pad[8];        // align to 64 bytes
 };
 static_assert(sizeof(ShmHeader) == 64, "ShmHeader must be 64 bytes");
+
+struct ShmSegment {
+    std::string name;
+    int         fd   = -1;
+    uint8_t    *ptr  = nullptr;
+    size_t      size = 0;
+};
+
+static ShmSegment g_shm_clean;   // pre-OSD clean frame (always active)
+static ShmSegment g_shm_osd;     // post-OSD frame (always active)
 
 // Non-blocking stream writer thread — prevents companion stream from blocking
 // the main loop.  Uses a single-slot buffer with frame dropping.
@@ -155,38 +161,37 @@ static std::string shmNameFromTopic(const std::string &topic)
     return name;
 }
 
-static bool initShm(uint32_t w, uint32_t h, int channels, const char *pix_fmt)
+static bool initShmSegment(ShmSegment &seg, uint32_t w, uint32_t h,
+                          int channels, const char *pix_fmt)
 {
     uint32_t stride     = w * channels;
     uint32_t frame_size = stride * h;
-    g_shm_size = sizeof(ShmHeader) + frame_size;
+    seg.size = sizeof(ShmHeader) + frame_size;
 
-    // Remove stale segment if it exists
-    shm_unlink(g_shm_name.c_str());
+    shm_unlink(seg.name.c_str());
 
-    g_shm_fd = shm_open(g_shm_name.c_str(), O_CREAT | O_RDWR, 0666);
-    if (g_shm_fd < 0) {
+    seg.fd = shm_open(seg.name.c_str(), O_CREAT | O_RDWR, 0666);
+    if (seg.fd < 0) {
         perror("[shm] shm_open");
         return false;
     }
-    if (ftruncate(g_shm_fd, g_shm_size) < 0) {
+    if (ftruncate(seg.fd, seg.size) < 0) {
         perror("[shm] ftruncate");
-        close(g_shm_fd); g_shm_fd = -1;
-        shm_unlink(g_shm_name.c_str());
+        close(seg.fd); seg.fd = -1;
+        shm_unlink(seg.name.c_str());
         return false;
     }
-    g_shm_ptr = static_cast<uint8_t*>(
-        mmap(nullptr, g_shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, g_shm_fd, 0));
-    if (g_shm_ptr == MAP_FAILED) {
+    seg.ptr = static_cast<uint8_t*>(
+        mmap(nullptr, seg.size, PROT_READ | PROT_WRITE, MAP_SHARED, seg.fd, 0));
+    if (seg.ptr == MAP_FAILED) {
         perror("[shm] mmap");
-        close(g_shm_fd); g_shm_fd = -1;
-        shm_unlink(g_shm_name.c_str());
-        g_shm_ptr = nullptr;
+        close(seg.fd); seg.fd = -1;
+        shm_unlink(seg.name.c_str());
+        seg.ptr = nullptr;
         return false;
     }
 
-    // Write header
-    auto *hdr = reinterpret_cast<ShmHeader*>(g_shm_ptr);
+    auto *hdr = reinterpret_cast<ShmHeader*>(seg.ptr);
     hdr->magic      = 0x475A4652;  // "GZFR"
     hdr->width      = w;
     hdr->height     = h;
@@ -199,20 +204,18 @@ static bool initShm(uint32_t w, uint32_t h, int channels, const char *pix_fmt)
     std::strncpy(hdr->pix_fmt, pix_fmt, sizeof(hdr->pix_fmt) - 1);
 
     fprintf(stderr, "[gz_image_bridge] Shared memory: %s  (%ux%u %s, %zu bytes)\n",
-            g_shm_name.c_str(), w, h, pix_fmt, g_shm_size);
+            seg.name.c_str(), w, h, pix_fmt, seg.size);
     return true;
 }
 
-static void shmWriteFrame(const std::string &frame)
+static void shmSegmentWrite(ShmSegment &seg, const std::string &frame)
 {
-    if (!g_shm_ptr) return;
-    auto *hdr = reinterpret_cast<ShmHeader*>(g_shm_ptr);
-    // Write frame data first, then update header atomically
-    uint8_t *dst = g_shm_ptr + sizeof(ShmHeader);
+    if (!seg.ptr) return;
+    auto *hdr = reinterpret_cast<ShmHeader*>(seg.ptr);
+    uint8_t *dst = seg.ptr + sizeof(ShmHeader);
     size_t copy_size = std::min(frame.size(), static_cast<size_t>(hdr->frame_size));
     std::memcpy(dst, frame.data(), copy_size);
 
-    // Memory fence — ensure pixel data is visible before sequence bump
     __atomic_thread_fence(__ATOMIC_RELEASE);
 
     hdr->timestamp_ns = static_cast<uint64_t>(
@@ -220,18 +223,18 @@ static void shmWriteFrame(const std::string &frame)
     hdr->sequence++;
 }
 
-static void cleanupShm()
+static void cleanupShmSegment(ShmSegment &seg)
 {
-    if (g_shm_ptr && g_shm_ptr != MAP_FAILED) {
-        munmap(g_shm_ptr, g_shm_size);
-        g_shm_ptr = nullptr;
+    if (seg.ptr && seg.ptr != MAP_FAILED) {
+        munmap(seg.ptr, seg.size);
+        seg.ptr = nullptr;
     }
-    if (g_shm_fd >= 0) {
-        close(g_shm_fd);
-        g_shm_fd = -1;
+    if (seg.fd >= 0) {
+        close(seg.fd);
+        seg.fd = -1;
     }
-    if (!g_shm_name.empty()) {
-        shm_unlink(g_shm_name.c_str());
+    if (!seg.name.empty()) {
+        shm_unlink(seg.name.c_str());
     }
 }
 
@@ -951,20 +954,18 @@ static void onImage(const gz::msgs::Image &_msg)
 
 int main(int argc, char **argv)
 {
-    // Parse arguments: <topic> [--osd [--msp-port PORT]]
+    // Parse arguments: <topic> [--msp-port PORT]
     std::string topic;
     for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "--osd") == 0)
-            g_osd_enabled = true;
+            ;  // accepted for backward compat, OSD is always on
         else if (strcmp(argv[i], "--msp-port") == 0 && i + 1 < argc)
             g_msp_port = atoi(argv[++i]);
         else if (strcmp(argv[i], "--stream") == 0 && i + 1 < argc)
             g_stream_dest = argv[++i];
         else if (strcmp(argv[i], "--display") == 0)
             g_display_mode = true;
-        else if (strcmp(argv[i], "--shm") == 0)
-            g_shm_enabled = true;
         else if (topic.empty())
             topic = argv[i];
     }
@@ -972,12 +973,10 @@ int main(int argc, char **argv)
     if (topic.empty())
     {
         fprintf(stderr,
-            "Usage: %s <image_topic> [--osd [--msp-port PORT]]\n"
-            "  --osd              Enable Betaflight OSD overlay\n"
+            "Usage: %s <image_topic> [--msp-port PORT]\n"
             "  --msp-port N       MSP TCP port (default: 5763 = UART3)\n"
             "  --stream H:P       Stream raw (no OSD) H.264 over UDP to host:port\n"
-            "  --display          Render in SDL2 window (zero-latency, no stdout)\n"
-            "  --shm              Expose latest frame via POSIX shared memory\n",
+            "  --display          Render in SDL2 window (zero-latency, no stdout)\n",
             argv[0]);
         return 1;
     }
@@ -985,13 +984,9 @@ int main(int argc, char **argv)
     std::signal(SIGINT, sigHandler);
     std::signal(SIGTERM, sigHandler);
 
-    // Start MSP telemetry thread if OSD enabled
-    std::thread osd_thread;
-    if (g_osd_enabled)
-    {
-        fprintf(stderr, "[gz_image_bridge] OSD enabled — MSP port %d\n", g_msp_port);
-        osd_thread = std::thread(mspThread);
-    }
+    // Start MSP telemetry thread (OSD always active)
+    fprintf(stderr, "[gz_image_bridge] OSD enabled — MSP port %d\n", g_msp_port);
+    std::thread osd_thread(mspThread);
 
     // Start non-blocking stream writer thread
     std::thread stream_thread;
@@ -1007,9 +1002,6 @@ int main(int argc, char **argv)
         return 1;
     }
 #endif
-
-    if (g_shm_enabled)
-        fprintf(stderr, "[gz_image_bridge] Shared memory mode enabled\n");
 
     gz::transport::Node node;
 
@@ -1072,15 +1064,23 @@ int main(int argc, char **argv)
             }
 #endif
 
-            // Initialize POSIX shared memory for local consumers
-            if (g_shm_enabled) {
-                g_shm_name = shmNameFromTopic(topic);
-                if (!initShm(g_width, g_height, ch_count, g_pix_fmt)) {
-                    fprintf(stderr, "[shm] Failed to initialize — disabling\n");
-                    g_shm_enabled = false;
+            // Initialize POSIX shared memory (always active)
+            {
+                std::string base = shmNameFromTopic(topic);
+                g_shm_clean.name = base;
+                if (!initShmSegment(g_shm_clean, g_width, g_height, ch_count, g_pix_fmt))
+                    fprintf(stderr, "[shm] Failed to initialize clean segment\n");
+                if (g_osd_enabled) {
+                    g_shm_osd.name = base + "_osd";
+                    if (!initShmSegment(g_shm_osd, g_width, g_height, ch_count, g_pix_fmt))
+                        fprintf(stderr, "[shm] Failed to initialize OSD segment\n");
                 }
             }
         }
+
+        // ── Clean SHM (always, pre-OSD frame for CV/tracker consumers) ──
+        if (meta_printed)
+            shmSegmentWrite(g_shm_clean, frame);
 
         // ── Raw LAN stream (before OSD so frames are clean) ──
         // Hand off to the dedicated stream writer thread (non-blocking).
@@ -1098,6 +1098,8 @@ int main(int argc, char **argv)
             uint8_t *pixels = reinterpret_cast<uint8_t*>(frame.data());
             renderOsd(pixels, static_cast<int>(g_width),
                       static_cast<int>(g_height), ch_count);
+            // OSD SHM — post-OSD frame for display consumers
+            shmSegmentWrite(g_shm_osd, frame);
         }
 
 #ifdef HAS_SDL2
@@ -1106,16 +1108,9 @@ int main(int argc, char **argv)
         {
             displayFrame(reinterpret_cast<const uint8_t*>(frame.data()),
                          g_width, ch_count);
-            // Shared memory gets post-OSD frame even in display mode
-            if (g_shm_enabled)
-                shmWriteFrame(frame);
             continue;   // skip stdout — display is the output
         }
 #endif
-
-        // ── Shared memory (post-OSD frame for local consumers) ──
-        if (g_shm_enabled)
-            shmWriteFrame(frame);
 
         // ── Stdout pipe to ffmpeg (original path) ──
         const char *ptr = frame.data();
@@ -1156,7 +1151,8 @@ int main(int argc, char **argv)
     }
 
     // Clean up shared memory
-    cleanupShm();
+    cleanupShmSegment(g_shm_clean);
+    cleanupShmSegment(g_shm_osd);
 
     if (osd_thread.joinable()) osd_thread.join();
     return 0;
