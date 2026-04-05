@@ -47,7 +47,10 @@
 #include <poll.h>
 #include <sys/socket.h>
 
+#include <cmath>
+
 #include <gz/msgs/image.pb.h>
+#include <gz/msgs/pose_v.pb.h>
 #include <gz/transport/Node.hh>
 
 #ifdef HAS_SDL2
@@ -125,6 +128,23 @@ static std::mutex              g_stream_mutex;
 static std::condition_variable g_stream_cv;
 static std::string             g_stream_frame;
 static bool                    g_stream_new_frame = false;
+
+// ── Forward ground speed from Gazebo pose ─────────────────────────────────
+// Subscribes to the Gazebo dynamic_pose/info topic for the drone model,
+// differentiates successive positions (~50 Hz), and projects the horizontal
+// velocity onto the body-frame forward (X) axis.
+
+static std::string g_model_name;     // extracted from the image topic path
+static std::mutex  g_fwd_mutex;
+static double      g_forward_speed_ms = 0.0;
+
+struct PoseTracker {
+    double x = 0, y = 0;
+    double qw = 1, qx = 0, qy = 0, qz = 0;
+    std::chrono::steady_clock::time_point stamp;
+    bool valid = false;
+};
+static PoseTracker g_prev_pose;
 
 static void sigHandler(int) { g_running = false; g_cv.notify_all(); g_stream_cv.notify_all(); }
 
@@ -888,7 +908,15 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
     drawOsdStr(frame, fw, fh, ch_count,
                (fw - cw) / 2, (fh - ch) / 2, "+", scale);
 
-    // ── Bottom-left: altitude ──
+    // ── Bottom-left: forward ground speed ──
+    {
+        double fwd;
+        { std::lock_guard<std::mutex> lk(g_fwd_mutex); fwd = g_forward_speed_ms; }
+        snprintf(buf, sizeof(buf), "FWD:%+.1fm/s", fwd);
+        drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch * 3 - 4, buf, scale);
+    }
+
+    // ── Bottom-left row 2: altitude ──
     snprintf(buf, sizeof(buf), "ALT:%.1fm", static_cast<double>(t.altitude_m));
     drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch * 2 - 2, buf, scale);
 
@@ -911,6 +939,64 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
     int hclen = static_cast<int>(strlen(buf));
     drawElem(frame, fw, fh, ch_count,
              (fw - hclen * cw) / 2, fh - margin - ch, buf, scale);
+}
+
+// ─── Gazebo pose callback (for forward ground speed) ─────────────────────────
+
+static void onPoseV(const gz::msgs::Pose_V &_msg)
+{
+    if (g_model_name.empty()) return;
+
+    for (int i = 0; i < _msg.pose_size(); i++)
+    {
+        const auto &p = _msg.pose(i);
+        if (p.name() != g_model_name) continue;
+
+        double x  = p.position().x();
+        double y  = p.position().y();
+        double qw = p.orientation().w();
+        double qx = p.orientation().x();
+        double qy = p.orientation().y();
+        double qz = p.orientation().z();
+
+        auto now = std::chrono::steady_clock::now();
+
+        if (g_prev_pose.valid)
+        {
+            double dt = std::chrono::duration<double>(
+                now - g_prev_pose.stamp).count();
+            if (dt >= 0.02)  // cap velocity updates at ~50 Hz
+            {
+                double vx = (x - g_prev_pose.x) / dt;
+                double vy = (y - g_prev_pose.y) / dt;
+
+                // Body-X (forward) direction in the world frame
+                double fx = 1.0 - 2.0 * (qy*qy + qz*qz);
+                double fy = 2.0 * (qx*qy + qw*qz);
+                double fmag = std::sqrt(fx*fx + fy*fy);
+                if (fmag > 1e-6) { fx /= fmag; fy /= fmag; }
+
+                double fwd = vx * fx + vy * fy;
+
+                {
+                    std::lock_guard<std::mutex> lk(g_fwd_mutex);
+                    g_forward_speed_ms = 0.7 * fwd + 0.3 * g_forward_speed_ms;
+                }
+
+                g_prev_pose.x = x;
+                g_prev_pose.y = y;
+                g_prev_pose.stamp = now;
+            }
+            // Always keep latest orientation for the projection
+            g_prev_pose.qw = qw; g_prev_pose.qx = qx;
+            g_prev_pose.qy = qy; g_prev_pose.qz = qz;
+        }
+        else
+        {
+            g_prev_pose = {x, y, qw, qx, qy, qz, now, true};
+        }
+        break;
+    }
 }
 
 // ─── Gazebo image callback ───────────────────────────────────────────────────
@@ -1016,6 +1102,34 @@ int main(int argc, char **argv)
 
     fprintf(stderr, "[gz_image_bridge] Subscribed to %s — waiting for frames\n",
             topic.c_str());
+
+    // Subscribe to Gazebo pose topic for forward ground speed computation.
+    // Parse image topic (/world/{W}/model/{M}/link/…/sensor/…/image) to
+    // extract the world name and model name.
+    {
+        std::vector<std::string> segs;
+        size_t pos = 0;
+        while (pos < topic.size()) {
+            size_t next = topic.find('/', pos + 1);
+            if (next == std::string::npos) next = topic.size();
+            std::string s = topic.substr(pos + 1, next - pos - 1);
+            if (!s.empty()) segs.push_back(s);
+            pos = next;
+        }
+        std::string world_name;
+        for (size_t i = 0; i < segs.size(); i++) {
+            if (segs[i] == "world" && i + 1 < segs.size())
+                world_name = segs[i + 1];
+            if (segs[i] == "model" && i + 1 < segs.size() && g_model_name.empty())
+                g_model_name = segs[i + 1];
+        }
+        if (!world_name.empty() && !g_model_name.empty()) {
+            std::string pose_topic = "/world/" + world_name + "/dynamic_pose/info";
+            if (node.Subscribe(pose_topic, onPoseV))
+                fprintf(stderr, "[gz_image_bridge] Tracking '%s' via %s for FWD speed\n",
+                        g_model_name.c_str(), pose_topic.c_str());
+        }
+    }
 
     bool meta_printed = false;
 

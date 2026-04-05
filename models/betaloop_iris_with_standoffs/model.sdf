@@ -3,10 +3,8 @@
   <model name='iris'>
     <pose>0 0 0.194923 0 0 0</pose>
     <link name='base_link'>
-      <velocity_decay>
-        <linear>0.0</linear>
-        <angular>0.0</angular>
-      </velocity_decay>
+      <!-- NOTE: <velocity_decay> is a Gazebo-Classic feature, ignored by gz-sim.
+           Body drag is handled by LiftDrag flat-plate plugins below. -->
       <inertial>
         <pose>0 0 0 0 0 0</pose>
         <mass>0.4</mass>
@@ -672,6 +670,64 @@
       <forward>0 1 0</forward>
       <upward>0 0 1</upward>
       <link_name>rotor_3</link_name>
+    </plugin>
+
+    <!-- =================================================================
+         Body-frame parasitic drag (flat-plate model on base_link).
+         Two horizontal plates at 90° give direction-independent XY drag.
+         Cd * A ≈ 1.0 * 0.10 = 0.10  per plate.
+         At 5 m/s → F ≈ 0.5 * 1.2 * 25 * 0.10 = 1.5 N per plate → ~3.75 m/s² decel (0.4 kg).
+         ================================================================= -->
+    <!-- X-axis body drag (decelerates forward/backward motion) -->
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.0</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.0</cla>
+      <cda>1.0</cda>
+      <cma>0.0</cma>
+      <cla_stall>0.0</cla_stall>
+      <cda_stall>1.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.10</area>
+      <air_density>1.2041</air_density>
+      <cp>0 0 0</cp>
+      <forward>1 0 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>base_link</link_name>
+    </plugin>
+    <!-- Y-axis body drag (decelerates lateral motion) -->
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.0</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.0</cla>
+      <cda>1.0</cda>
+      <cma>0.0</cma>
+      <cla_stall>0.0</cla_stall>
+      <cda_stall>1.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.10</area>
+      <air_density>1.2041</air_density>
+      <cp>0 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>base_link</link_name>
+    </plugin>
+    <!-- Z-axis body drag (vertical damping) -->
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.0</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.0</cla>
+      <cda>1.0</cda>
+      <cma>0.0</cma>
+      <cla_stall>0.0</cla_stall>
+      <cda_stall>1.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.20</area>
+      <air_density>1.2041</air_density>
+      <cp>0 0 0</cp>
+      <forward>0 0 1</forward>
+      <upward>1 0 0</upward>
+      <link_name>base_link</link_name>
     </plugin>
 
     <!-- Betaflight SITL plugin
