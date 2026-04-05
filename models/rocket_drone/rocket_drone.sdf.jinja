@@ -528,7 +528,7 @@
          At 5 m/s → F ≈ 0.5 * 1.2 * 25 * 0.10 = 1.5 N per plate → ~2 m/s² decel.
          ================================================================= -->
     <!-- X-axis body drag (decelerates forward/backward motion) -->
-    <plugin name="body_drag_x" filename="gz-sim-lift-drag-system">
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <a0>0.0</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.0</cla>
@@ -545,7 +545,7 @@
       <link_name>base_link</link_name>
     </plugin>
     <!-- Y-axis body drag (decelerates lateral motion) -->
-    <plugin name="body_drag_y" filename="gz-sim-lift-drag-system">
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <a0>0.0</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.0</cla>
@@ -562,7 +562,7 @@
       <link_name>base_link</link_name>
     </plugin>
     <!-- Z-axis body drag (vertical damping) -->
-    <plugin name="body_drag_z" filename="gz-sim-lift-drag-system">
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <a0>0.0</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.0</cla>
