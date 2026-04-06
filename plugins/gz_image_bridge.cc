@@ -80,6 +80,9 @@ static const char *g_pix_fmt = "rgb24";
 static bool g_osd_enabled = true;   // OSD always enabled
 static int  g_msp_port    = 5763;   // UART3 by default (5760 + uart_number)
 
+// Camera pitch (degrees) — used for crosshair Z-axis projection.
+static double g_cam_pitch_deg = -80.0;
+
 // Raw-frame UDP stream — forks ffmpeg to encode H.264 and send mpegts.
 static std::string g_stream_dest;      // e.g. "10.0.0.87:5000", empty = disabled
 static int         g_stream_fd = -1;   // write-end of pipe to ffmpeg child
@@ -904,9 +907,19 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
                  255, 200, 50);
     }
 
-    // ── Center: crosshair ──
-    drawOsdStr(frame, fw, fh, ch_count,
-               (fw - cw) / 2, (fh - ch) / 2, "+", scale);
+    // ── Center: crosshair at projected body Z-up axis ──
+    // Camera pitch (e.g. -80°) → optical axis is (90+pitch)° from +Z.
+    // Body Z-up projects above image center by an amount that depends on vFOV.
+    {
+        double camPitchRad = g_cam_pitch_deg * M_PI / 180.0;
+        constexpr double kHfovRad = 2.0;
+        double offAngle = M_PI / 2.0 + camPitchRad;
+        double halfVfov = std::atan(std::tan(kHfovRad / 2.0) * fh / (double)fw);
+        int dy = static_cast<int>(std::tan(offAngle) / std::tan(halfVfov) * (fh / 2.0));
+        int crossX = (fw - cw) / 2;
+        int crossY = (fh - ch) / 2 - dy;  // minus → up in image
+        drawOsdStr(frame, fw, fh, ch_count, crossX, crossY, "+", scale);
+    }
 
     // ── Bottom-left: forward ground speed ──
     {
@@ -1050,6 +1063,8 @@ int main(int argc, char **argv)
             g_msp_port = atoi(argv[++i]);
         else if (strcmp(argv[i], "--stream") == 0 && i + 1 < argc)
             g_stream_dest = argv[++i];
+        else if (strcmp(argv[i], "--cam-pitch") == 0 && i + 1 < argc)
+            g_cam_pitch_deg = atof(argv[++i]);
         else if (strcmp(argv[i], "--display") == 0)
             g_display_mode = true;
         else if (topic.empty())
@@ -1062,6 +1077,7 @@ int main(int argc, char **argv)
             "Usage: %s <image_topic> [--msp-port PORT]\n"
             "  --msp-port N       MSP TCP port (default: 5763 = UART3)\n"
             "  --stream H:P       Stream raw (no OSD) H.264 over UDP to host:port\n"
+            "  --cam-pitch DEG    Camera pitch in degrees (default: -80)\n"
             "  --display          Render in SDL2 window (zero-latency, no stdout)\n",
             argv[0]);
         return 1;
