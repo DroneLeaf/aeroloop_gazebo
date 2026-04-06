@@ -81,18 +81,18 @@
       </link>
     </model>
 
-    <!-- Rocket drone vehicle -->
+    <!-- Rocket drone vehicle (upward-facing camera variant) -->
     <include>
-      <uri>model://rocket_drone</uri>
+      <uri>model://rocket_drone_upcam</uri>
       <name>betaflight_vehicle</name>
       <pose>0 0 0.3 0 0 0</pose>
     </include>
 
 
-    <!-- Collision test target: fixed directly above the rocket spawn -->
+    <!-- Collision test target: fixed ~3 m north of the rocket spawn -->
     <model name="collision_test_target">
       <static>false</static>
-      <pose>0 0 20 0 0 0</pose>
+      <pose>10 0 20 0 0 0</pose>
       <link name="geranium_link">
         <pose>0 0 0 1.57079 0 0</pose>
         <gravity>false</gravity>

@@ -1,29 +1,48 @@
 /*
- * ViscousDragPlugin — linear velocity-proportional drag for gz-sim 8.
+ * ViscousDragPlugin — body-frame aerodynamic drag for gz-sim 8.
  *
- * Applies F = -b_linear * v  and  τ = -b_angular * ω  to a link every
- * simulation step.  This models low-speed aerodynamic damping (prop wash,
- * H-force, blade flapping) that flat-plate quadratic LiftDrag plugins
- * cannot capture.
+ * Transforms world-frame velocity into the link's body frame, applies
+ * per-axis linear + quadratic drag, then transforms the resulting force
+ * back to world frame.  This lets you set different drag for forward (X),
+ * lateral (Y), and vertical (Z) independently — matching real airframe
+ * asymmetry (low frontal area, high side area).
+ *
+ *   F_body_i = -(b_lin_i * v_i  +  b_quad_i * |v_i| * v_i)
+ *   τ_i      = -(b_angular * ω_i)   [world frame]
  *
  * SDF usage (inside a <model> element):
  *
  *   <plugin filename="ViscousDragPlugin"
  *           name="gz::sim::systems::ViscousDragPlugin">
  *     <link_name>base_link</link_name>
- *     <linear_damping>0.6</linear_damping>    <!-- N·s/m -->
- *     <angular_damping>0.3</angular_damping>   <!-- N·m·s/rad -->
+ *     <!-- Body-frame linear drag  (N·s/m) -->
+ *     <linear_damping_x>0.1</linear_damping_x>    <!-- forward -->
+ *     <linear_damping_y>0.5</linear_damping_y>    <!-- lateral -->
+ *     <linear_damping_z>0.3</linear_damping_z>    <!-- vertical -->
+ *     <!-- Body-frame quadratic drag  (N·s²/m²) -->
+ *     <quadratic_damping_x>0.008</quadratic_damping_x>
+ *     <quadratic_damping_y>0.05</quadratic_damping_y>
+ *     <quadratic_damping_z>0.03</quadratic_damping_z>
+ *     <!-- World-frame angular drag  (N·m·s/rad) -->
+ *     <angular_damping>0.05</angular_damping>
  *   </plugin>
+ *
+ *   <!-- Scalar shorthand (same value for all axes): -->
+ *   <linear_damping>0.3</linear_damping>
+ *   <quadratic_damping>0.02</quadratic_damping>
  */
 
+#include <cmath>
 #include <string>
 
+#include <gz/math/Quaternion.hh>
 #include <gz/math/Vector3.hh>
 #include <gz/plugin/Register.hh>
 #include <gz/sim/Link.hh>
 #include <gz/sim/Model.hh>
 #include <gz/sim/System.hh>
 #include <gz/sim/Util.hh>
+#include <gz/sim/components/Pose.hh>
 
 namespace gz::sim::systems
 {
@@ -51,8 +70,29 @@ public:
         if (sdf->HasElement("link_name"))
             linkName = sdf->Get<std::string>("link_name");
 
-        if (sdf->HasElement("linear_damping"))
-            linearDamping_ = sdf->Get<double>("linear_damping");
+        // Per-axis linear damping (body frame)
+        if (sdf->HasElement("linear_damping")) {
+            double v = sdf->Get<double>("linear_damping");
+            linDamp_ = {v, v, v};
+        }
+        if (sdf->HasElement("linear_damping_x"))
+            linDamp_.X(sdf->Get<double>("linear_damping_x"));
+        if (sdf->HasElement("linear_damping_y"))
+            linDamp_.Y(sdf->Get<double>("linear_damping_y"));
+        if (sdf->HasElement("linear_damping_z"))
+            linDamp_.Z(sdf->Get<double>("linear_damping_z"));
+
+        // Per-axis quadratic damping (body frame)
+        if (sdf->HasElement("quadratic_damping")) {
+            double v = sdf->Get<double>("quadratic_damping");
+            quadDamp_ = {v, v, v};
+        }
+        if (sdf->HasElement("quadratic_damping_x"))
+            quadDamp_.X(sdf->Get<double>("quadratic_damping_x"));
+        if (sdf->HasElement("quadratic_damping_y"))
+            quadDamp_.Y(sdf->Get<double>("quadratic_damping_y"));
+        if (sdf->HasElement("quadratic_damping_z"))
+            quadDamp_.Z(sdf->Get<double>("quadratic_damping_z"));
 
         if (sdf->HasElement("angular_damping"))
             angularDamping_ = sdf->Get<double>("angular_damping");
@@ -68,8 +108,9 @@ public:
         link_.EnableVelocityChecks(_ecm, true);
 
         gzmsg << "[ViscousDragPlugin] " << linkName
-               << "  linear_damping=" << linearDamping_
-               << "  angular_damping=" << angularDamping_ << "\n";
+               << "  lin=(" << linDamp_.X() << "," << linDamp_.Y() << "," << linDamp_.Z() << ")"
+               << "  quad=(" << quadDamp_.X() << "," << quadDamp_.Y() << "," << quadDamp_.Z() << ")"
+               << "  ang=" << angularDamping_ << "\n";
     }
 
     void PreUpdate(const UpdateInfo &_info,
@@ -80,14 +121,29 @@ public:
 
         auto linVel = link_.WorldLinearVelocity(_ecm);
         auto angVel = link_.WorldAngularVelocity(_ecm);
+        auto poseOpt = link_.WorldPose(_ecm);
 
-        if (linVel && angVel)
-        {
-            gz::math::Vector3d force  = -*linVel * linearDamping_;
-            gz::math::Vector3d torque = -*angVel * angularDamping_;
+        if (!linVel || !angVel || !poseOpt)
+            return;
 
-            link_.AddWorldWrench(_ecm, force, torque);
-        }
+        // Transform world velocity → body frame
+        gz::math::Quaterniond q = poseOpt->Rot();
+        gz::math::Quaterniond qInv = q.Inverse();
+        gz::math::Vector3d vBody = qInv.RotateVector(*linVel);
+
+        // Per-body-axis: F_i = -(b_lin_i * v_i + b_quad_i * |v_i| * v_i)
+        gz::math::Vector3d fBody(
+            -(linDamp_.X() * vBody.X() + quadDamp_.X() * std::abs(vBody.X()) * vBody.X()),
+            -(linDamp_.Y() * vBody.Y() + quadDamp_.Y() * std::abs(vBody.Y()) * vBody.Y()),
+            -(linDamp_.Z() * vBody.Z() + quadDamp_.Z() * std::abs(vBody.Z()) * vBody.Z()));
+
+        // Rotate drag force back to world frame
+        gz::math::Vector3d fWorld = q.RotateVector(fBody);
+
+        // Angular damping stays in world frame
+        gz::math::Vector3d torque = -*angVel * angularDamping_;
+
+        link_.AddWorldWrench(_ecm, fWorld, torque);
     }
 
 private:
@@ -95,8 +151,9 @@ private:
     Entity linkEntity_{kNullEntity};
     Link   link_{kNullEntity};
 
-    double linearDamping_  = 0.5;   // N·s/m   (default)
-    double angularDamping_ = 0.2;   // N·m·s/rad
+    gz::math::Vector3d linDamp_  {0.3, 0.3, 0.3};   // N·s/m
+    gz::math::Vector3d quadDamp_ {0.02, 0.02, 0.02}; // N·s²/m²
+    double angularDamping_ = 0.01;                    // N·m·s/rad
 };
 
 }  // namespace gz::sim::systems
