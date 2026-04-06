@@ -790,6 +790,15 @@
       </rotor>
     </plugin>
 
+    <!-- Linear viscous drag — models low-speed prop-wash / H-force damping
+         that quadratic LiftDrag plates cannot capture.  -->
+    <plugin name="gz::sim::systems::ViscousDragPlugin"
+            filename="ViscousDragPlugin">
+      <link_name>base_link</link_name>
+      <linear_damping>0.3</linear_damping>
+      <angular_damping>0.005</angular_damping>
+    </plugin>
+
     <static>0</static>
   </model>
 </sdf>

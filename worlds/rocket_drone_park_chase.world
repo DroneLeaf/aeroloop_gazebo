@@ -178,7 +178,7 @@
           <geometry>
             <mesh>
               <uri>model://shahed_drone/meshes/shahed.glb</uri>
-              <scale>5 5 5</scale>
+              <scale>1 1 1</scale>
             </mesh>
           </geometry>
           <surface>
