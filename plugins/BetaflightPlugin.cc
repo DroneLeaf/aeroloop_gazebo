@@ -55,8 +55,11 @@ typedef SSIZE_T ssize_t;
 #include <gz/sim/components/AngularVelocity.hh>
 #include <gz/sim/components/Imu.hh>
 #include <gz/sim/components/Joint.hh>
+#include <gz/sim/components/Actuators.hh>
 #include <gz/sim/components/JointForceCmd.hh>
 #include <gz/sim/components/JointVelocity.hh>
+
+#include <gz/msgs/actuators.pb.h>
 #include <gz/sim/components/LinearAcceleration.hh>
 #include <gz/sim/components/LinearVelocity.hh>
 #include <gz/sim/components/Name.hh>
@@ -508,16 +511,18 @@ void BetaflightPlugin::Configure(const Entity &_entity,
         _ecm.CreateComponent(rotor.jointEntity, components::JointVelocity());
       }
 
-      // Create joint force command component if it doesn't exist
-      if (!_ecm.Component<components::JointForceCmd>(rotor.jointEntity))
-      {
-        _ecm.CreateComponent(rotor.jointEntity,
-                            components::JointForceCmd({0.0}));
-      }
-
       this->dataPtr->rotors.push_back(rotor);
       rotorSDF = rotorSDF->GetNextElement("rotor");
     }
+
+    // Create Actuators component on the model entity for MulticopterMotorModel
+    gz::msgs::Actuators defaultActuators;
+    for (size_t i = 0; i < this->dataPtr->rotors.size(); ++i)
+    {
+      defaultActuators.add_velocity(0.0);
+    }
+    _ecm.CreateComponent(this->dataPtr->modelEntity,
+        components::Actuators(defaultActuators));
   }
 
   // Get sensors - find IMU sensor
@@ -610,29 +615,13 @@ void BetaflightPluginPrivate::ResetPIDs()
 void BetaflightPluginPrivate::ApplyMotorForces(const double _dt,
     EntityComponentManager &_ecm)
 {
-  // update velocity PID for rotors and apply force to joint
+  // Write motor velocities to the Actuators component for MulticopterMotorModel
+  gz::msgs::Actuators actuatorMsg;
   for (size_t i = 0; i < this->rotors.size(); ++i)
   {
-    double velTarget = this->rotors[i].multiplier *
-      this->rotors[i].cmd /
-      this->rotors[i].rotorVelocitySlowdownSim;
-
-    // Get joint velocity (treat missing/empty data as zero velocity)
-    double vel = 0.0;
-    auto jointVelComp = _ecm.Component<components::JointVelocity>(
-        this->rotors[i].jointEntity);
-
-    if (jointVelComp && !jointVelComp->Data().empty())
-      vel = jointVelComp->Data()[0];
-    double error = vel - velTarget;
-    // Convert dt to chrono::duration for gz::math::PID
-    std::chrono::duration<double> dt_chrono(_dt);
-    double force = this->rotors[i].pid.Update(error, dt_chrono);
-
-    // Set joint force command
-    _ecm.SetComponentData<components::JointForceCmd>(
-        this->rotors[i].jointEntity, {force});
+    actuatorMsg.add_velocity(this->rotors[i].cmd);
   }
+  _ecm.SetComponentData<components::Actuators>(this->modelEntity, actuatorMsg);
 }
 
 /////////////////////////////////////////////////
@@ -855,8 +844,9 @@ void BetaflightPluginPrivate::SendState(EntityComponentManager &_ecm) const
 
     if (jointVelComp && !jointVelComp->Data().empty())
     {
-      // Angular velocity is returned in rad/s
-      pkt.escRpm[i] = jointVelComp->Data()[0];
+      // Joint velocity is slowed by rotorVelocitySlowdownSim in MulticopterMotorModel.
+      // Multiply back to get actual motor velocity in rad/s for ESC telemetry.
+      pkt.escRpm[i] = jointVelComp->Data()[0] * this->rotors[i].rotorVelocitySlowdownSim;
     }
     else
     {
