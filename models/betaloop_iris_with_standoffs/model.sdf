@@ -795,7 +795,12 @@
     <plugin name="gz::sim::systems::ViscousDragPlugin"
             filename="ViscousDragPlugin">
       <link_name>base_link</link_name>
-      <linear_damping>0.3</linear_damping>
+      <linear_damping_x>0.3</linear_damping_x>
+      <linear_damping_y>0.3</linear_damping_y>
+      <linear_damping_z>0.3</linear_damping_z>
+      <quadratic_damping_x>0</quadratic_damping_x>
+      <quadratic_damping_y>0</quadratic_damping_y>
+      <quadratic_damping_z>0</quadratic_damping_z>
       <angular_damping>0.005</angular_damping>
     </plugin>
 

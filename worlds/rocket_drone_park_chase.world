@@ -1,6 +1,6 @@
 <?xml version="1.0" ?>
 <sdf version="1.9">
-  <world name="default">
+  <world name="fpv_chase_park">
     <physics name="realtime" type="ignored">
       <max_step_size>0.004</max_step_size>
       <real_time_factor>1.0</real_time_factor>
@@ -82,7 +82,7 @@
     <!-- Rocket drone vehicle -->
     <include>
       <uri>model://rocket_drone</uri>
-      <name>betaflight_vehicle</name>
+      <name>rocket_drone</name>
       <pose>0 0 0.3 0 0 0</pose>
     </include>
 
@@ -218,7 +218,7 @@
 
       <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
         <joint_name>orbit_joint</joint_name>
-        <initial_velocity>0.05</initial_velocity>
+        <initial_velocity>0.2</initial_velocity>
       </plugin>
       <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
         <joint_name>zigzag_joint</joint_name>

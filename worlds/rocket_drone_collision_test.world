@@ -1,6 +1,6 @@
 <?xml version="1.0" ?>
 <sdf version="1.9">
-  <world name="default">
+  <world name="collision_test">
     <physics name="realtime" type="ignored">
       <max_step_size>0.004</max_step_size>
       <real_time_factor>1.0</real_time_factor>
@@ -84,7 +84,7 @@
     <!-- Rocket drone vehicle (use --cam-pitch -90 for upward-facing camera) -->
     <include>
       <uri>model://rocket_drone</uri>
-      <name>betaflight_vehicle</name>
+      <name>rocket_drone</name>
       <pose>0 0 0.3 0 0 0</pose>
     </include>
 

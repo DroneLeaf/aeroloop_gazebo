@@ -5,14 +5,14 @@
       <pose>0 0 0 0 0 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
-        <mass>0.5</mass>
+        <mass>0.224261</mass>
         <inertia>
-          <ixx>0.009708</ixx>
+          <ixx>0.00435448</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.009708</iyy>
+          <iyy>0.00435448</iyy>
           <iyz>0</iyz>
-          <izz>0.018408</izz>
+          <izz>0.00825662</izz>
         </inertia>
       </inertial>
       <collision name='base_link_inertia_collision'>
@@ -59,7 +59,7 @@
         <geometry>
           <cylinder>
             <radius>0.005</radius>
-            <length>0.20</length>
+            <length>0.2</length>
           </cylinder>
         </geometry>
         <material>
@@ -96,7 +96,7 @@
         <geometry>
           <cylinder>
             <radius>0.005</radius>
-            <length>0.20</length>
+            <length>0.2</length>
           </cylinder>
         </geometry>
         <material>
@@ -133,7 +133,7 @@
         <geometry>
           <cylinder>
             <radius>0.005</radius>
-            <length>0.20</length>
+            <length>0.2</length>
           </cylinder>
         </geometry>
         <material>
@@ -170,7 +170,7 @@
         <geometry>
           <cylinder>
             <radius>0.005</radius>
-            <length>0.20</length>
+            <length>0.2</length>
           </cylinder>
         </geometry>
         <material>
