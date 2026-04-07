@@ -65,11 +65,11 @@
         <pose>0 0 0 0 0 0</pose>
         <inertial>
           <pose>0 0 0 0 0 0</pose>
-          <mass>1.1213</mass>
+          <mass>0.560652</mass>
           <inertia>
-            <ixx>0.0217724</ixx><ixy>0</ixy><ixz>0</ixz>
-            <iyy>0.0217724</iyy><iyz>0</iyz>
-            <izz>0.0412831</izz>
+            <ixx>0.0108862</ixx><ixy>0</ixy><ixz>0</ixz>
+            <iyy>0.0108862</iyy><iyz>0</iyz>
+            <izz>0.0206415</izz>
           </inertia>
         </inertial>
         <visual name="base_link_inertia_visual">

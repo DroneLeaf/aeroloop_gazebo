@@ -7,14 +7,14 @@
            Body drag is handled by LiftDrag flat-plate plugins below. -->
       <inertial>
         <pose>0 0 0 0 0 0</pose>
-        <mass>0.4</mass>
+        <mass>0.407747</mass>
         <inertia>
-          <ixx>0.002</ixx>
+          <ixx>0.00203874</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.004</iyy>
+          <iyy>0.00407747</iyy>
           <iyz>0</iyz>
-          <izz>0.0045</izz>
+          <izz>0.00458716</izz>
         </inertia>
       </inertial>
       <collision name='base_link_collision'>
@@ -800,9 +800,9 @@
       <linear_damping_x>0.3</linear_damping_x>
       <linear_damping_y>0.3</linear_damping_y>
       <linear_damping_z>0.3</linear_damping_z>
-      <quadratic_damping_x>0</quadratic_damping_x>
+      <quadratic_damping_x>0.05</quadratic_damping_x>
       <quadratic_damping_y>0</quadratic_damping_y>
-      <quadratic_damping_z>0</quadratic_damping_z>
+      <quadratic_damping_z>0.01</quadratic_damping_z>
       <angular_damping>0.005</angular_damping>
     </plugin>
 
