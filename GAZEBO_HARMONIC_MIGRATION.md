@@ -88,8 +88,7 @@ gz sim --version
 ### Using the Python Launcher (Recommended)
 
 ```bash
-cd ../betaloop
-python3 start.py
+python3 ~/betaflight-docker/betaloop/start.py
 ```
 
 The launcher has been updated to:

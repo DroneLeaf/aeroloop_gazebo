@@ -6,14 +6,14 @@
     <!-- Base link -->
     <link name="base_link">
       <inertial>
-        <mass>1.5</mass>
+        <mass>0.448522</mass>
         <inertia>
-          <ixx>0.029125</ixx>
+          <ixx>0.00870895</ixx>
           <ixy>0.0</ixy>
           <ixz>0.0</ixz>
-          <iyy>0.029125</iyy>
+          <iyy>0.00870895</iyy>
           <iyz>0.0</iyz>
-          <izz>0.055225</izz>
+          <izz>0.0165132</izz>
         </inertia>
       </inertial>
 
@@ -258,6 +258,62 @@
       </axis>
     </joint>
 
+    <!-- =================================================================
+         Body-frame parasitic drag (flat-plate model on base_link).
+         Two horizontal plates at 90° give direction-independent XY drag.
+         ================================================================= -->
+    <!-- X-axis body drag (decelerates forward/backward motion) -->
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.0</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.0</cla>
+      <cda>1.0</cda>
+      <cma>0.0</cma>
+      <cla_stall>0.0</cla_stall>
+      <cda_stall>1.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.10</area>
+      <air_density>1.2041</air_density>
+      <cp>0 0 0</cp>
+      <forward>1 0 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>base_link</link_name>
+    </plugin>
+    <!-- Y-axis body drag (decelerates lateral motion) -->
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.0</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.0</cla>
+      <cda>1.0</cda>
+      <cma>0.0</cma>
+      <cla_stall>0.0</cla_stall>
+      <cda_stall>1.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.10</area>
+      <air_density>1.2041</air_density>
+      <cp>0 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>base_link</link_name>
+    </plugin>
+    <!-- Z-axis body drag (vertical damping) -->
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <a0>0.0</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>0.0</cla>
+      <cda>1.0</cda>
+      <cma>0.0</cma>
+      <cla_stall>0.0</cla_stall>
+      <cda_stall>1.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.20</area>
+      <air_density>1.2041</air_density>
+      <cp>0 0 0</cp>
+      <forward>0 0 1</forward>
+      <upward>1 0 0</upward>
+      <link_name>base_link</link_name>
+    </plugin>
+
     <!-- BetaflightPlugin -->
     <plugin name="gz::sim::systems::BetaflightPlugin" filename="BetaflightPlugin">
       <imuName>imu_sensor</imuName>
@@ -290,6 +346,15 @@
         <maxRpm>838</maxRpm>
         <motorNumber>3</motorNumber>
       </rotor>
+    </plugin>
+
+    <!-- Linear viscous drag — models low-speed prop-wash / H-force damping
+         that quadratic LiftDrag plates cannot capture.  -->
+    <plugin name="gz::sim::systems::ViscousDragPlugin"
+            filename="ViscousDragPlugin">
+      <link_name>base_link</link_name>
+      <linear_damping>0.6</linear_damping>
+      <angular_damping>0.03</angular_damping>
     </plugin>
   </model>
 </sdf>
