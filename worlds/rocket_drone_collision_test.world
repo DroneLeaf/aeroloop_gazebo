@@ -83,8 +83,8 @@
 
     <!-- Rocket drone vehicle (use --cam-pitch -90 for upward-facing camera) -->
     <include>
-      <uri>model://rocket_drone</uri>
-      <name>rocket_drone</name>
+      <uri>model://thaqib_1_prototype</uri>
+      <name>thaqib_1_prototype</name>
       <pose>0 0 0.3 0 0 0</pose>
     </include>
 

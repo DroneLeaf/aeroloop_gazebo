@@ -6,14 +6,14 @@
     <!-- Base link -->
     <link name="base_link">
       <inertial>
-        <mass>1.5</mass>
+        <mass>0.280326</mass>
         <inertia>
-          <ixx>0.029125</ixx>
+          <ixx>0.00544309</ixx>
           <ixy>0.0</ixy>
           <ixz>0.0</ixz>
-          <iyy>0.029125</iyy>
+          <iyy>0.00544309</iyy>
           <iyz>0.0</iyz>
-          <izz>0.055225</izz>
+          <izz>0.0103208</izz>
         </inertia>
       </inertial>
 
@@ -354,7 +354,7 @@
             filename="ViscousDragPlugin">
       <link_name>base_link</link_name>
       <linear_damping>0.6</linear_damping>
-      <angular_damping>0.01</angular_damping>
+      <angular_damping>0.03</angular_damping>
     </plugin>
   </model>
 </sdf>

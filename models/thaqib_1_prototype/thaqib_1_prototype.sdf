@@ -1,10 +1,8 @@
-<?xml version='1.0'?>
-<sdf version='1.9'>
-  <model name='iris'>
-    <pose>0 0 0.194923 0 0 0</pose>
+<!-- thaqib_1_prototype: identical physics to rocket_drone, different visual mesh -->
+<sdf version='1.6'>
+  <model name='thaqib_1_prototype'>
     <link name='base_link'>
-      <!-- NOTE: <velocity_decay> is a Gazebo-Classic feature, ignored by gz-sim.
-           Body drag is handled by LiftDrag flat-plate plugins below. -->
+      <pose>0 0 0 0 0 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
         <mass>0.280326</mass>
@@ -17,11 +15,12 @@
           <izz>0.0103208</izz>
         </inertia>
       </inertial>
-      <collision name='base_link_collision'>
-        <pose>0 0 -0.08 0 0 0</pose>
+      <collision name='base_link_inertia_collision'>
+        <!-- Box height is 0.11m, so -0.16 keeps its bottom at z=0 instead of intersecting terrain -->
+        <pose>0 0 -0.16 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.47 0.47 0.23</size>
+            <size>0.47 0.47 0.11</size>
           </box>
         </geometry>
         <surface>
@@ -37,81 +36,26 @@
               <mu2>1.0</mu2>
             </ode>
           </friction>
+          <collide_bitmask>0x01</collide_bitmask>
         </surface>
       </collision>
-      <visual name='base_link_visual'>
+      <visual name='base_link_inertia_visual'>
+        <pose>0 0 -0.10 0 0 0</pose>
         <geometry>
           <mesh>
-            <uri>model://betaloop_iris_with_standoffs/meshes/iris.dae</uri>
+            <scale>0.001 0.001 0.001</scale>
+            <uri>model://thaqib_1_prototype/meshes/thaqib_1_prototype.stl</uri>
           </mesh>
         </geometry>
         <material>
-          <ambient>0.3 0.3 0.3 1</ambient>
-          <diffuse>0.3 0.3 0.3 1</diffuse>
-          <specular>0.1 0.1 0.1 1</specular>
+          <ambient>0.93 0.90 0.85 1</ambient>
+          <diffuse>0.93 0.90 0.85 1</diffuse>
+          <specular>0.3 0.3 0.3 1</specular>
         </material>
       </visual>
-
-      <visual name='front_left_leg_visual'>
-        <pose>0.123 0.22 -0.125 0 0 0</pose>
-        <geometry>
-          <cylinder>
-            <radius>0.005</radius>
-            <length>0.2</length>
-          </cylinder>
-        </geometry>
-        <material>
-          <ambient>0.1 0.1 0.1 1</ambient>
-          <diffuse>0.1 0.1 0.1 1</diffuse>
-          <specular>0.01 0.01 0.01 1</specular>
-        </material>
-      </visual>
-      <visual name='front_right_leg_visual'>
-        <pose>0.123 -0.22 -0.125 0 0 0</pose>
-        <geometry>
-          <cylinder>
-            <radius>0.005</radius>
-            <length>0.2</length>
-          </cylinder>
-        </geometry>
-        <material>
-          <ambient>0.1 0.1 0.1 1</ambient>
-          <diffuse>0.1 0.1 0.1 1</diffuse>
-          <specular>0.01 0.01 0.01 1</specular>
-        </material>
-      </visual>
-      <visual name='rear_left_leg_visual'>
-        <pose>-0.140 0.21 -0.125 0 0 0</pose>
-        <geometry>
-          <cylinder>
-            <radius>0.005</radius>
-            <length>0.2</length>
-          </cylinder>
-        </geometry>
-        <material>
-          <ambient>0.1 0.1 0.1 1</ambient>
-          <diffuse>0.1 0.1 0.1 1</diffuse>
-          <specular>0.01 0.01 0.01 1</specular>
-        </material>
-      </visual>
-      <visual name='rear_right_leg_visual'>
-        <pose>-0.140 -0.21 -0.125 0 0 0</pose>
-        <geometry>
-          <cylinder>
-            <radius>0.005</radius>
-            <length>0.2</length>
-          </cylinder>
-        </geometry>
-        <material>
-          <ambient>0.1 0.1 0.1 1</ambient>
-          <diffuse>0.1 0.1 0.1 1</diffuse>
-          <specular>0.01 0.01 0.01 1</specular>
-        </material>
-      </visual>
-
-      <!-- FPV camera sensor (forward-looking, slight upward tilt for FPV flight) -->
-      <sensor name="fpv_cam" type="camera">
-        <pose>0.15 0 0.03 0 -1.396263402 0</pose>
+      <!-- FPV camera sensor (30 degrees below horizon) -->
+      <sensor name='fpv_cam' type='camera'>
+        <pose>0 0 0.262 0 -1.396263402 0</pose>
         <camera>
           <horizontal_fov>2.0</horizontal_fov>
           <image>
@@ -127,9 +71,8 @@
         <update_rate>30</update_rate>
         <visualize>1</visualize>
       </sensor>
-
-      <!-- Chase camera sensor (3rd-person view: behind + above, angled 30° down) -->
-      <sensor name="chase_cam" type="camera">
+      <!-- Chase camera sensor (third-person follow view) -->
+      <sensor name='chase_cam' type='camera'>
         <pose>-1.5 0 0.8 0 0.5236 0</pose>
         <camera>
           <horizontal_fov>1.4</horizontal_fov>
@@ -146,54 +89,22 @@
         <update_rate>30</update_rate>
         <visualize>0</visualize>
       </sensor>
+      <gravity>1</gravity>
+      <!-- NOTE: <velocity_decay> is a Gazebo-Classic feature, ignored by gz-sim.
+           Body drag is handled by LiftDrag flat-plate plugins below. -->
     </link>
-    <link name='iris/ground_truth/odometry_sensorgt_link'>
-      <pose>0 0 0 0 -0 0</pose>
-      <inertial>
-        <pose>0 0 0 0 -0 0</pose>
-        <mass>0.015</mass>
-        <inertia>
-          <ixx>0.00001</ixx>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyy>0.00002</iyy>
-          <iyz>0</iyz>
-          <izz>0.00002</izz>
-        </inertia>
-      </inertial>
-    </link>
-    <joint name='iris/ground_truth/odometry_sensorgt_joint' type='revolute'>
-      <child>iris/ground_truth/odometry_sensorgt_link</child>
-      <parent>base_link</parent>
-      <axis>
-        <xyz>0 0 1</xyz>
-        <limit>
-          <lower>0</lower>
-          <upper>0</upper>
-          <effort>0</effort>
-          <velocity>0</velocity>
-        </limit>
-        <dynamics>
-          <damping>1.0</damping>
-        </dynamics>
-      </axis>
-      <physics>
-        <ode>
-          <implicit_spring_damper>1</implicit_spring_damper>
-        </ode>
-      </physics>
-    </joint>
-    <link name='iris/imu_link'>
+    <link name='imu_link'>
+      <pose>0 0 0.02 0 0 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
         <mass>0.015</mass>
         <inertia>
-          <ixx>0.000001</ixx>
+          <ixx>1e-05</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.000002</iyy>
+          <iyy>1e-05</iyy>
           <iyz>0</iyz>
-          <izz>0.000002</izz>
+          <izz>1e-05</izz>
         </inertia>
       </inertial>
       <sensor name="imu_sensor" type="imu">
@@ -202,8 +113,8 @@
         <update_rate>1000.0</update_rate>
       </sensor>
     </link>
-    <joint name='iris/imu_joint' type='revolute'>
-      <child>iris/imu_link</child>
+    <joint name='imu_joint' type='revolute'>
+      <child>imu_link</child>
       <parent>base_link</parent>
       <axis>
         <xyz>0 0 1</xyz>
@@ -223,60 +134,26 @@
         </ode>
       </physics>
     </joint>
-<!--
-    <link name='iris/imugt_link'>
-      <pose>0 0 0 0 -0 0</pose>
-      <inertial>
-        <pose>0 0 0 0 -0 0</pose>
-        <mass>1e-02</mass>
-        <inertia>
-          <ixx>0.0002</ixx>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyy>0.0002</iyy>
-          <iyz>0</iyz>
-          <izz>0.0002</izz>
-        </inertia>
-      </inertial>
-    </link>
-    <joint name='iris/imugt_joint' type='revolute'>
-      <child>iris/imugt_link</child>
-      <parent>base_link</parent>
-      <axis>
-        <xyz>0 0 1</xyz>
-        <limit>
-          <lower>0</lower>
-          <upper>0</upper>
-          <effort>0</effort>
-          <velocity>0</velocity>
-        </limit>
-        <dynamics>
-          <spring_reference>0</spring_reference>
-          <spring_stiffness>0</spring_stiffness>
-        </dynamics>
-      </axis>
-    </joint>
--->
     <link name='rotor_0'>
-      <pose>0.13 -0.22 0.023 0 -0 0</pose>
+      <pose>0.130 0 0.023 0 0 0</pose>
       <inertial>
-        <pose>0 0 0 0 -0 0</pose>
-        <mass>0.025</mass>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.005</mass>
         <inertia>
-          <ixx>9.75e-06</ixx>
+          <ixx>9.75e-07</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.000166704</iyy>
+          <iyy>0.000273104</iyy>
           <iyz>0</iyz>
-          <izz>0.000167604</izz>
+          <izz>0.000274004</izz>
         </inertia>
       </inertial>
       <collision name='rotor_0_collision'>
-        <pose>0 0 0 0 -0 0</pose>
+        <pose>0 0 0 0 0 0</pose>
         <geometry>
           <cylinder>
             <length>0.005</length>
-            <radius>0.1</radius>
+            <radius>0.128</radius>
           </cylinder>
         </geometry>
         <surface>
@@ -286,25 +163,26 @@
           <friction>
             <ode/>
           </friction>
+          <collide_bitmask>0x02</collide_bitmask>
         </surface>
       </collision>
       <visual name='rotor_0_visual'>
-        <pose>0 0 0 0 -0 0</pose>
+        <pose>-0.01 0 -0.11 0 0 0</pose>
         <geometry>
           <mesh>
-            <scale>1 1 1</scale>
-            <uri>model://betaloop_iris_with_standoffs/meshes/iris_prop_ccw.dae</uri>
+            <scale>0.5 0.5 0.5</scale>
+            <uri>model://thaqib_1_prototype/meshes/rocket_drone_prop_ccw.dae</uri>
           </mesh>
         </geometry>
         <material>
-          <ambient>0 0 0.8 1</ambient>
-          <diffuse>0 0 0.8 1</diffuse>
-          <specular>0.1 0.1 0.3 1</specular>
+          <script>
+            <name>Gazebo/Blue</name>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+          </script>
         </material>
       </visual>
       <gravity>1</gravity>
       <velocity_decay/>
-      <self_collide>0</self_collide>
     </link>
     <joint name='rotor_0_joint' type='revolute'>
       <child>rotor_0</child>
@@ -326,25 +204,25 @@
       </physics>
     </joint>
     <link name='rotor_1'>
-      <pose>-0.13 0.2 0.023 0 -0 0</pose>
+      <pose>-0.130 0 0.023 0 0 0</pose>
       <inertial>
-        <pose>0 0 0 0 -0 0</pose>
-        <mass>0.025</mass>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.005</mass>
         <inertia>
-          <ixx>9.75e-06</ixx>
+          <ixx>9.75e-07</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.000166704</iyy>
+          <iyy>0.000273104</iyy>
           <iyz>0</iyz>
-          <izz>0.000167604</izz>
+          <izz>0.000274004</izz>
         </inertia>
       </inertial>
       <collision name='rotor_1_collision'>
-        <pose>0 0 0 0 -0 0</pose>
+        <pose>0 0 0 0 0 0</pose>
         <geometry>
           <cylinder>
             <length>0.005</length>
-            <radius>0.1</radius>
+            <radius>0.128</radius>
           </cylinder>
         </geometry>
         <surface>
@@ -354,25 +232,26 @@
           <friction>
             <ode/>
           </friction>
+          <collide_bitmask>0x02</collide_bitmask>
         </surface>
       </collision>
       <visual name='rotor_1_visual'>
-        <pose>0 0 0 0 -0 0</pose>
+        <pose>0.01 0 -0.11 0 0 0</pose>
         <geometry>
           <mesh>
-            <scale>1 1 1</scale>
-            <uri>model://betaloop_iris_with_standoffs/meshes/iris_prop_ccw.dae</uri>
+            <scale>0.5 0.5 0.5</scale>
+            <uri>model://thaqib_1_prototype/meshes/rocket_drone_prop_ccw.dae</uri>
           </mesh>
         </geometry>
         <material>
-          <ambient>0.3 0.3 0.3 1</ambient>
-          <diffuse>0.3 0.3 0.3 1</diffuse>
-          <specular>0.1 0.1 0.1 1</specular>
+          <script>
+            <name>Gazebo/DarkGrey</name>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+          </script>
         </material>
       </visual>
       <gravity>1</gravity>
       <velocity_decay/>
-      <self_collide>0</self_collide>
     </link>
     <joint name='rotor_1_joint' type='revolute'>
       <child>rotor_1</child>
@@ -394,25 +273,25 @@
       </physics>
     </joint>
     <link name='rotor_2'>
-      <pose>0.13 0.22 0.023 0 -0 0</pose>
+      <pose>0 0.130 0.023 0 0 0</pose>
       <inertial>
-        <pose>0 0 0 0 -0 0</pose>
-        <mass>0.025</mass>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.005</mass>
         <inertia>
-          <ixx>9.75e-06</ixx>
+          <ixx>9.75e-07</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.000166704</iyy>
+          <iyy>0.000273104</iyy>
           <iyz>0</iyz>
-          <izz>0.000167604</izz>
+          <izz>0.000274004</izz>
         </inertia>
       </inertial>
       <collision name='rotor_2_collision'>
-        <pose>0 0 0 0 -0 0</pose>
+        <pose>0 0 0 0 0 0</pose>
         <geometry>
           <cylinder>
             <length>0.005</length>
-            <radius>0.1</radius>
+            <radius>0.128</radius>
           </cylinder>
         </geometry>
         <surface>
@@ -422,25 +301,26 @@
           <friction>
             <ode/>
           </friction>
+          <collide_bitmask>0x02</collide_bitmask>
         </surface>
       </collision>
       <visual name='rotor_2_visual'>
-        <pose>0 0 0 0 -0 0</pose>
+        <pose>0 -0.01 -0.11 0 0 0</pose>
         <geometry>
           <mesh>
-            <scale>1 1 1</scale>
-            <uri>model://betaloop_iris_with_standoffs/meshes/iris_prop_cw.dae</uri>
+            <scale>0.5 0.5 0.5</scale>
+            <uri>model://thaqib_1_prototype/meshes/rocket_drone_prop_cw.dae</uri>
           </mesh>
         </geometry>
         <material>
-          <ambient>0 0 0.8 1</ambient>
-          <diffuse>0 0 0.8 1</diffuse>
-          <specular>0.1 0.1 0.3 1</specular>
+          <script>
+            <name>Gazebo/Blue</name>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+          </script>
         </material>
       </visual>
       <gravity>1</gravity>
       <velocity_decay/>
-      <self_collide>0</self_collide>
     </link>
     <joint name='rotor_2_joint' type='revolute'>
       <child>rotor_2</child>
@@ -462,25 +342,25 @@
       </physics>
     </joint>
     <link name='rotor_3'>
-      <pose>-0.13 -0.2 0.023 0 -0 0</pose>
+      <pose>0 -0.130 0.023 0 0 0</pose>
       <inertial>
-        <pose>0 0 0 0 -0 0</pose>
-        <mass>0.025</mass>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.005</mass>
         <inertia>
-          <ixx>9.75e-06</ixx>
+          <ixx>9.75e-07</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.000166704</iyy>
+          <iyy>0.000273104</iyy>
           <iyz>0</iyz>
-          <izz>0.000167604</izz>
+          <izz>0.000274004</izz>
         </inertia>
       </inertial>
       <collision name='rotor_3_collision'>
-        <pose>0 0 0 0 -0 0</pose>
+        <pose>0 0 0 0 0 0</pose>
         <geometry>
           <cylinder>
             <length>0.005</length>
-            <radius>0.1</radius>
+            <radius>0.128</radius>
           </cylinder>
         </geometry>
         <surface>
@@ -490,25 +370,26 @@
           <friction>
             <ode/>
           </friction>
+          <collide_bitmask>0x02</collide_bitmask>
         </surface>
       </collision>
       <visual name='rotor_3_visual'>
-        <pose>0 0 0 0 -0 0</pose>
+        <pose>0 0.01 -0.11 0 0 0</pose>
         <geometry>
           <mesh>
-            <scale>1 1 1</scale>
-            <uri>model://betaloop_iris_with_standoffs/meshes/iris_prop_cw.dae</uri>
+            <scale>0.5 0.5 0.5</scale>
+            <uri>model://thaqib_1_prototype/meshes/rocket_drone_prop_cw.dae</uri>
           </mesh>
         </geometry>
         <material>
-          <ambient>0.3 0.3 0.3 1</ambient>
-          <diffuse>0.3 0.3 0.3 1</diffuse>
-          <specular>0.1 0.1 0.1 1</specular>
+          <script>
+            <name>Gazebo/DarkGrey</name>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+          </script>
         </material>
       </visual>
       <gravity>1</gravity>
       <velocity_decay/>
-      <self_collide>0</self_collide>
     </link>
     <joint name='rotor_3_joint' type='revolute'>
       <child>rotor_3</child>
@@ -529,18 +410,18 @@
         </ode>
       </physics>
     </joint>
-
     <!-- Lift/Drag plugins for rotor aerodynamics.
          forward vectors must match rotation direction for upward lift:
            forwardI · v = ω_z · cp.x · fwd.y  must be > 0
          CCW rotors (0,1): multiplier=+1 → ω_z>0 → +cp needs fwd +Y, -cp needs fwd -Y
          CW  rotors (2,3): multiplier=-1 → ω_z<0 → +cp needs fwd -Y, -cp needs fwd +Y
-         a0=0.025, area=0.1 calibrated for ~8 N total thrust at P-limited
-         steady-state rotor velocity (~599 rad/s).  -->
+         a0=0.4 rad (~23° blade pitch). area=0.018 calibrated for ~22 N total
+         at steady-state ω≈599 rad/s (P=0.01, d=0.004, maxRpm=838).
+         Zero-lift climb speed ≈ ωr·tan(a0) = 50.3·tan(0.4) ≈ 21 m/s.  -->
 
     <!-- rotor_0 (front-right, CCW) -->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.3</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -548,7 +429,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.009</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>0.084 0 0</cp>
       <forward>0 1 0</forward>
@@ -556,7 +437,7 @@
       <link_name>rotor_0</link_name>
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.3</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -564,7 +445,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.009</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>-0.084 0 0</cp>
       <forward>0 -1 0</forward>
@@ -574,7 +455,7 @@
 
     <!-- rotor_1 (rear-left, CCW) -->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.3</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -582,7 +463,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.009</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>0.084 0 0</cp>
       <forward>0 1 0</forward>
@@ -590,7 +471,7 @@
       <link_name>rotor_1</link_name>
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.3</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -598,7 +479,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.009</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>-0.084 0 0</cp>
       <forward>0 -1 0</forward>
@@ -608,7 +489,7 @@
 
     <!-- rotor_2 (front-left, CW) -->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.3</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -616,7 +497,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.009</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>0.084 0 0</cp>
       <forward>0 -1 0</forward>
@@ -624,7 +505,7 @@
       <link_name>rotor_2</link_name>
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.3</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -632,7 +513,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.009</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>-0.084 0 0</cp>
       <forward>0 1 0</forward>
@@ -642,7 +523,7 @@
 
     <!-- rotor_3 (rear-right, CW) -->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.3</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -650,7 +531,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.009</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>0.084 0 0</cp>
       <forward>0 -1 0</forward>
@@ -658,7 +539,7 @@
       <link_name>rotor_3</link_name>
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.3</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -666,7 +547,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.009</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>-0.084 0 0</cp>
       <forward>0 1 0</forward>
@@ -674,72 +555,8 @@
       <link_name>rotor_3</link_name>
     </plugin>
 
-    <!-- =================================================================
-         Body-frame parasitic drag (flat-plate model on base_link).
-         Two horizontal plates at 90° give direction-independent XY drag.
-         Cd * A ≈ 1.0 * 0.10 = 0.10  per plate.
-         At 5 m/s → F ≈ 0.5 * 1.2 * 25 * 0.10 = 1.5 N per plate → ~3.75 m/s² decel (0.4 kg).
-         ================================================================= -->
-    <!-- X-axis body drag (decelerates forward/backward motion) -->
-    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.0</a0>
-      <alpha_stall>1.4</alpha_stall>
-      <cla>0.0</cla>
-      <cda>1.0</cda>
-      <cma>0.0</cma>
-      <cla_stall>0.0</cla_stall>
-      <cda_stall>1.0</cda_stall>
-      <cma_stall>0.0</cma_stall>
-      <area>0.10</area>
-      <air_density>1.2041</air_density>
-      <cp>0 0 0</cp>
-      <forward>1 0 0</forward>
-      <upward>0 0 1</upward>
-      <link_name>base_link</link_name>
-    </plugin>
-    <!-- Y-axis body drag (decelerates lateral motion) -->
-    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.0</a0>
-      <alpha_stall>1.4</alpha_stall>
-      <cla>0.0</cla>
-      <cda>1.0</cda>
-      <cma>0.0</cma>
-      <cla_stall>0.0</cla_stall>
-      <cda_stall>1.0</cda_stall>
-      <cma_stall>0.0</cma_stall>
-      <area>0.10</area>
-      <air_density>1.2041</air_density>
-      <cp>0 0 0</cp>
-      <forward>0 1 0</forward>
-      <upward>0 0 1</upward>
-      <link_name>base_link</link_name>
-    </plugin>
-    <!-- Z-axis body drag (vertical damping) -->
-    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.0</a0>
-      <alpha_stall>1.4</alpha_stall>
-      <cla>0.0</cla>
-      <cda>1.0</cda>
-      <cma>0.0</cma>
-      <cla_stall>0.0</cla_stall>
-      <cda_stall>1.0</cda_stall>
-      <cma_stall>0.0</cma_stall>
-      <area>0.20</area>
-      <air_density>1.2041</air_density>
-      <cp>0 0 0</cp>
-      <forward>0 0 1</forward>
-      <upward>1 0 0</upward>
-      <link_name>base_link</link_name>
-    </plugin>
-
-    <!-- Betaflight SITL plugin
-         Motor mapping: BF QUADX motor_speed[id] → physical rotor joint
-         BF[0]=REAR_R(CW)   → rotor_3_joint (model rear-right,  pose -0.13,-0.20)
-         BF[1]=FRONT_R(CCW) → rotor_0_joint (model front-right, pose +0.13,-0.22)
-         BF[2]=REAR_L(CCW)  → rotor_1_joint (model rear-left,   pose -0.13,+0.20)
-         BF[3]=FRONT_L(CW)  → rotor_2_joint (model front-left,  pose +0.13,+0.22) -->
     <plugin name="gz::sim::systems::BetaflightPlugin" filename="BetaflightPlugin">
-      <imuName>iris/imu_link::imu_sensor</imuName>
+      <imuName>imu_sensor</imuName>
       <connectionTimeoutMaxCount>5</connectionTimeoutMaxCount>
       <!-- Motor mapping: SITL sends servo[0]=BF Motor 1 (FR), [1]=Motor 2 (RL), [2]=Motor 3 (FL), [3]=Motor 0 (RR) -->
       <rotor id="0">
@@ -748,8 +565,8 @@
         <vel_d_gain>0</vel_d_gain>
         <vel_i_max>0</vel_i_max>
         <vel_i_min>0</vel_i_min>
-        <vel_cmd_max>838.0</vel_cmd_max>
-        <vel_cmd_min>-838.0</vel_cmd_min>
+        <vel_cmd_max>5000.0</vel_cmd_max>
+        <vel_cmd_min>-5000.0</vel_cmd_min>
         <jointName>rotor_0_joint</jointName>
         <turningDirection>ccw</turningDirection>
         <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
@@ -760,8 +577,8 @@
         <vel_d_gain>0</vel_d_gain>
         <vel_i_max>0</vel_i_max>
         <vel_i_min>0</vel_i_min>
-        <vel_cmd_max>838.0</vel_cmd_max>
-        <vel_cmd_min>-838.0</vel_cmd_min>
+        <vel_cmd_max>5000.0</vel_cmd_max>
+        <vel_cmd_min>-5000.0</vel_cmd_min>
         <jointName>rotor_1_joint</jointName>
         <turningDirection>ccw</turningDirection>
         <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
@@ -772,8 +589,8 @@
         <vel_d_gain>0</vel_d_gain>
         <vel_i_max>0</vel_i_max>
         <vel_i_min>0</vel_i_min>
-        <vel_cmd_max>838.0</vel_cmd_max>
-        <vel_cmd_min>-838.0</vel_cmd_min>
+        <vel_cmd_max>5000.0</vel_cmd_max>
+        <vel_cmd_min>-5000.0</vel_cmd_min>
         <jointName>rotor_2_joint</jointName>
         <turningDirection>cw</turningDirection>
         <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
@@ -784,16 +601,20 @@
         <vel_d_gain>0</vel_d_gain>
         <vel_i_max>0</vel_i_max>
         <vel_i_min>0</vel_i_min>
-        <vel_cmd_max>838.0</vel_cmd_max>
-        <vel_cmd_min>-838.0</vel_cmd_min>
+        <vel_cmd_max>5000.0</vel_cmd_max>
+        <vel_cmd_min>-5000.0</vel_cmd_min>
         <jointName>rotor_3_joint</jointName>
         <turningDirection>cw</turningDirection>
         <rotorVelocitySlowdownSim>1</rotorVelocitySlowdownSim>
       </rotor>
     </plugin>
 
-    <!-- Linear viscous drag — models low-speed prop-wash / H-force damping
-         that quadratic LiftDrag plates cannot capture.  -->
+    <!-- Body-frame aerodynamic drag (per-axis linear + quadratic).
+         Forward (X): low drag → 30+ m/s achievable at steep pitch
+         Lateral (Y): high drag → stops side-sliding quickly
+         Vertical (Z): medium drag
+         Angular: strong yaw/pitch/roll damping
+         Terminal velocity at 45° pitch ≈ 30 m/s forward.  -->
     <plugin name="gz::sim::systems::ViscousDragPlugin"
             filename="ViscousDragPlugin">
       <link_name>base_link</link_name>
