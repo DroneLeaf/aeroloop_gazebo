@@ -88,7 +88,7 @@
       </sensor>
       <gravity>1</gravity>
       <!-- NOTE: <velocity_decay> is a Gazebo-Classic feature, ignored by gz-sim.
-           Body drag is handled by LiftDrag flat-plate plugins below. -->
+           Body drag is handled by the ViscousDragPlugin below. -->
     </link>
     <link name='imu_link'>
       <pose>0 0 0.02 0 0 0</pose>
@@ -390,7 +390,7 @@
     </joint>
     <!-- Lift/Drag plugins for rotor aerodynamics -->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.075</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -398,15 +398,15 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>0.084 0 0</cp>
-      <forward>0 -1 0</forward>
+      <forward>0 1 0</forward>
       <upward>0 0 1</upward>
       <link_name>rotor_0</link_name>
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.075</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -414,16 +414,16 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>-0.084 0 0</cp>
-      <forward>0 1 0</forward>
+      <forward>0 -1 0</forward>
       <upward>0 0 1</upward>
       <link_name>rotor_0</link_name>
     </plugin>
 
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.075</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -431,15 +431,15 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>0.084 0 0</cp>
-      <forward>0 -1 0</forward>
+      <forward>0 1 0</forward>
       <upward>0 0 1</upward>
       <link_name>rotor_1</link_name>
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.075</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -447,16 +447,16 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>-0.084 0 0</cp>
-      <forward>0 1 0</forward>
+      <forward>0 -1 0</forward>
       <upward>0 0 1</upward>
       <link_name>rotor_1</link_name>
     </plugin>
 
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.075</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -464,15 +464,15 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>0.084 0 0</cp>
-      <forward>0 1 0</forward>
+      <forward>0 -1 0</forward>
       <upward>0 0 1</upward>
       <link_name>rotor_2</link_name>
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.075</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -480,16 +480,16 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>-0.084 0 0</cp>
-      <forward>0 -1 0</forward>
+      <forward>0 1 0</forward>
       <upward>0 0 1</upward>
       <link_name>rotor_2</link_name>
     </plugin>
 
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.075</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -497,86 +497,45 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
       <cp>0.084 0 0</cp>
-      <forward>0 1 0</forward>
-      <upward>0 0 1</upward>
-      <link_name>rotor_3</link_name>
-    </plugin>
-    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.075</a0>
-      <alpha_stall>1.4</alpha_stall>
-      <cla>0.2500</cla>
-      <cda>0.004</cda>
-      <cma>0.00</cma>
-      <cla_stall>-0.025</cla_stall>
-      <cda_stall>0.0</cda_stall>
-      <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
-      <air_density>1.2041</air_density>
-      <cp>-0.084 0 0</cp>
       <forward>0 -1 0</forward>
       <upward>0 0 1</upward>
       <link_name>rotor_3</link_name>
     </plugin>
-
-    <!-- =================================================================
-         Body-frame parasitic drag (flat-plate model on base_link).
-         Two horizontal plates at 90° give direction-independent XY drag.
-         Cd * A ≈ 1.0 * 0.10 = 0.10  per plate.
-         At 5 m/s → F ≈ 0.5 * 1.2 * 25 * 0.10 = 1.5 N per plate → ~2 m/s² decel.
-         ================================================================= -->
-    <!-- X-axis body drag (decelerates forward/backward motion) -->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.0</a0>
+      <a0>0.4</a0>
       <alpha_stall>1.4</alpha_stall>
-      <cla>0.0</cla>
-      <cda>1.0</cda>
-      <cma>0.0</cma>
-      <cla_stall>0.0</cla_stall>
-      <cda_stall>1.0</cda_stall>
+      <cla>0.2500</cla>
+      <cda>0.004</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.10</area>
+      <area>0.018</area>
       <air_density>1.2041</air_density>
-      <cp>0 0 0</cp>
-      <forward>1 0 0</forward>
-      <upward>0 0 1</upward>
-      <link_name>base_link</link_name>
-    </plugin>
-    <!-- Y-axis body drag (decelerates lateral motion) -->
-    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.0</a0>
-      <alpha_stall>1.4</alpha_stall>
-      <cla>0.0</cla>
-      <cda>1.0</cda>
-      <cma>0.0</cma>
-      <cla_stall>0.0</cla_stall>
-      <cda_stall>1.0</cda_stall>
-      <cma_stall>0.0</cma_stall>
-      <area>0.10</area>
-      <air_density>1.2041</air_density>
-      <cp>0 0 0</cp>
+      <cp>-0.084 0 0</cp>
       <forward>0 1 0</forward>
       <upward>0 0 1</upward>
-      <link_name>base_link</link_name>
+      <link_name>rotor_3</link_name>
     </plugin>
-    <!-- Z-axis body drag (vertical damping) -->
-    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.0</a0>
-      <alpha_stall>1.4</alpha_stall>
-      <cla>0.0</cla>
-      <cda>1.0</cda>
-      <cma>0.0</cma>
-      <cla_stall>0.0</cla_stall>
-      <cda_stall>1.0</cda_stall>
-      <cma_stall>0.0</cma_stall>
-      <area>0.20</area>
-      <air_density>1.2041</air_density>
-      <cp>0 0 0</cp>
-      <forward>0 0 1</forward>
-      <upward>1 0 0</upward>
+
+    <!-- Body-frame aerodynamic drag (per-axis linear + quadratic).
+         Forward (X): low drag → 30+ m/s achievable at steep pitch
+         Lateral (Y): high drag → stops side-sliding quickly
+         Vertical (Z): medium drag
+         Angular: strong yaw/pitch/roll damping -->
+    <plugin name="gz::sim::systems::ViscousDragPlugin"
+            filename="ViscousDragPlugin">
       <link_name>base_link</link_name>
+      <linear_damping_x>0.1</linear_damping_x>
+      <linear_damping_y>0.4</linear_damping_y>
+      <linear_damping_z>0.03</linear_damping_z>
+      <quadratic_damping_x>0</quadratic_damping_x>
+      <quadratic_damping_y>0</quadratic_damping_y>
+      <quadratic_damping_z>0</quadratic_damping_z>
+      <angular_damping>0.03</angular_damping>
     </plugin>
 
     <plugin name="gz::sim::systems::BetaflightPlugin" filename="BetaflightPlugin">

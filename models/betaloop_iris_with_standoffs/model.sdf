@@ -530,15 +530,17 @@
       </physics>
     </joint>
 
-    <!-- Lift/Drag plugins for rotor aerodynamics
+    <!-- Lift/Drag plugins for rotor aerodynamics.
          forward vectors must match rotation direction for upward lift:
-         - CCW rotors (rotor_0, rotor_1): blade at +cp uses forward +Y, blade at -cp uses forward -Y
-         - CW rotors (rotor_2, rotor_3): blade at +cp uses forward -Y, blade at -cp uses forward +Y
-         a0=0.025 tuned for ~42% hover throttle with 0.53kg model mass -->
+           forwardI · v = ω_z · cp.x · fwd.y  must be > 0
+         CCW rotors (0,1): multiplier=+1 → ω_z>0 → +cp needs fwd +Y, -cp needs fwd -Y
+         CW  rotors (2,3): multiplier=-1 → ω_z<0 → +cp needs fwd -Y, -cp needs fwd +Y
+         a0=0.025, area=0.1 calibrated for ~8 N total thrust at P-limited
+         steady-state rotor velocity (~599 rad/s).  -->
 
-    <!-- rotor_0 (front-right, CCW via BetaflightPlugin) -->
+    <!-- rotor_0 (front-right, CCW) -->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.025</a0>
+      <a0>0.3</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -546,7 +548,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.009</area>
       <air_density>1.2041</air_density>
       <cp>0.084 0 0</cp>
       <forward>0 1 0</forward>
@@ -554,7 +556,7 @@
       <link_name>rotor_0</link_name>
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.025</a0>
+      <a0>0.3</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -562,7 +564,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.009</area>
       <air_density>1.2041</air_density>
       <cp>-0.084 0 0</cp>
       <forward>0 -1 0</forward>
@@ -570,9 +572,9 @@
       <link_name>rotor_0</link_name>
     </plugin>
 
-    <!-- rotor_1 (rear-left, CCW via BetaflightPlugin) -->
+    <!-- rotor_1 (rear-left, CCW) -->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.025</a0>
+      <a0>0.3</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -580,7 +582,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.009</area>
       <air_density>1.2041</air_density>
       <cp>0.084 0 0</cp>
       <forward>0 1 0</forward>
@@ -588,7 +590,7 @@
       <link_name>rotor_1</link_name>
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.025</a0>
+      <a0>0.3</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -596,7 +598,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.009</area>
       <air_density>1.2041</air_density>
       <cp>-0.084 0 0</cp>
       <forward>0 -1 0</forward>
@@ -604,9 +606,9 @@
       <link_name>rotor_1</link_name>
     </plugin>
 
-    <!-- rotor_2 (front-left, CW via BetaflightPlugin) -->
+    <!-- rotor_2 (front-left, CW) -->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.025</a0>
+      <a0>0.3</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -614,7 +616,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.009</area>
       <air_density>1.2041</air_density>
       <cp>0.084 0 0</cp>
       <forward>0 -1 0</forward>
@@ -622,7 +624,7 @@
       <link_name>rotor_2</link_name>
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.025</a0>
+      <a0>0.3</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -630,7 +632,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.009</area>
       <air_density>1.2041</air_density>
       <cp>-0.084 0 0</cp>
       <forward>0 1 0</forward>
@@ -638,9 +640,9 @@
       <link_name>rotor_2</link_name>
     </plugin>
 
-    <!-- rotor_3 (rear-right, CW via BetaflightPlugin) -->
+    <!-- rotor_3 (rear-right, CW) -->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.025</a0>
+      <a0>0.3</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -648,7 +650,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.009</area>
       <air_density>1.2041</air_density>
       <cp>0.084 0 0</cp>
       <forward>0 -1 0</forward>
@@ -656,7 +658,7 @@
       <link_name>rotor_3</link_name>
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <a0>0.025</a0>
+      <a0>0.3</a0>
       <alpha_stall>1.4</alpha_stall>
       <cla>0.2500</cla>
       <cda>0.004</cda>
@@ -664,7 +666,7 @@
       <cla_stall>-0.025</cla_stall>
       <cda_stall>0.0</cda_stall>
       <cma_stall>0.0</cma_stall>
-      <area>0.2</area>
+      <area>0.009</area>
       <air_density>1.2041</air_density>
       <cp>-0.084 0 0</cp>
       <forward>0 1 0</forward>
