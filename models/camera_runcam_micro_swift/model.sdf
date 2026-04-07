@@ -4,14 +4,14 @@
     <link name='base_link'>
        <inertial>
 		   
-        <mass>0.280326</mass><!-- https://shop.runcam.com/runcam-micro-swift/ -->
+        <mass>0.448522</mass><!-- https://shop.runcam.com/runcam-micro-swift/ -->
 		<inertia> <!-- From Meshlab -->
-          <ixx>0.00544309</ixx>
+          <ixx>0.00870895</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.00544309</iyy>
+          <iyy>0.00870895</iyy>
           <iyz>0</iyz>
-          <izz>0.0103208</izz>
+          <izz>0.0165132</izz>
         </inertia>
       </inertial>
 
