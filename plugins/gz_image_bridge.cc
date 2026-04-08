@@ -91,6 +91,7 @@ static pid_t       g_stream_pid = -1;  // ffmpeg child PID
 // Direct display mode — renders frames in an SDL2 window instead of piping
 // through ffmpeg.  Eliminates encode/decode overhead for minimum latency.
 static bool g_display_mode = false;
+static bool g_hidden_mode  = false;  // --hidden: create SDL2 window hidden (render to SHM only)
 
 // ── Shared memory frame server ──────────────────────────────────────────────
 // Exposes the latest raw frame via POSIX shared memory so any local process
@@ -385,10 +386,16 @@ static bool initDisplay(uint32_t w, uint32_t h, const char *pf)
         return false;
     }
 
+    Uint32 win_flags = SDL_WINDOW_RESIZABLE;
+    if (g_hidden_mode)
+        win_flags |= SDL_WINDOW_HIDDEN;
+    else
+        win_flags |= SDL_WINDOW_SHOWN;
+
     g_sdl_window = SDL_CreateWindow(
         "FPV", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         static_cast<int>(w), static_cast<int>(h),
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+        win_flags);
     if (!g_sdl_window) {
         fprintf(stderr, "[display] CreateWindow failed: %s\n", SDL_GetError());
         SDL_Quit();
@@ -1069,6 +1076,8 @@ int main(int argc, char **argv)
             g_cam_pitch_deg = atof(argv[++i]);
         else if (strcmp(argv[i], "--display") == 0)
             g_display_mode = true;
+        else if (strcmp(argv[i], "--hidden") == 0)
+            g_hidden_mode = true;
         else if (topic.empty())
             topic = argv[i];
     }
@@ -1081,6 +1090,7 @@ int main(int argc, char **argv)
             "  --stream H:P       Stream raw (no OSD) H.264 over UDP to host:port\n"
             "  --cam-pitch DEG    Camera pitch in degrees (default: -80)\n"
             "  --display          Render in SDL2 window (zero-latency, no stdout)\n"
+            "  --hidden           With --display: create SDL2 window hidden (SHM still active)\n"
             "  --no-osd           Disable OSD overlay and OSD shared memory segment\n",
             argv[0]);
         return 1;
