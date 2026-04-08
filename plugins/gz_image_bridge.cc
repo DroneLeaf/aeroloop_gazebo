@@ -1058,7 +1058,9 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "--osd") == 0)
-            ;  // accepted for backward compat, OSD is always on
+            ;  // accepted for backward compat, OSD is on by default
+        else if (strcmp(argv[i], "--no-osd") == 0)
+            g_osd_enabled = false;
         else if (strcmp(argv[i], "--msp-port") == 0 && i + 1 < argc)
             g_msp_port = atoi(argv[++i]);
         else if (strcmp(argv[i], "--stream") == 0 && i + 1 < argc)
@@ -1078,7 +1080,8 @@ int main(int argc, char **argv)
             "  --msp-port N       MSP TCP port (default: 5763 = UART3)\n"
             "  --stream H:P       Stream raw (no OSD) H.264 over UDP to host:port\n"
             "  --cam-pitch DEG    Camera pitch in degrees (default: -80)\n"
-            "  --display          Render in SDL2 window (zero-latency, no stdout)\n",
+            "  --display          Render in SDL2 window (zero-latency, no stdout)\n"
+            "  --no-osd           Disable OSD overlay and OSD shared memory segment\n",
             argv[0]);
         return 1;
     }
@@ -1086,9 +1089,14 @@ int main(int argc, char **argv)
     std::signal(SIGINT, sigHandler);
     std::signal(SIGTERM, sigHandler);
 
-    // Start MSP telemetry thread (OSD always active)
-    fprintf(stderr, "[gz_image_bridge] OSD enabled — MSP port %d\n", g_msp_port);
-    std::thread osd_thread(mspThread);
+    // Start MSP telemetry thread (only when OSD is enabled)
+    std::thread osd_thread;
+    if (g_osd_enabled) {
+        fprintf(stderr, "[gz_image_bridge] OSD enabled — MSP port %d\n", g_msp_port);
+        osd_thread = std::thread(mspThread);
+    } else {
+        fprintf(stderr, "[gz_image_bridge] OSD disabled\n");
+    }
 
     // Start non-blocking stream writer thread
     std::thread stream_thread;
