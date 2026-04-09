@@ -92,7 +92,7 @@
     <!-- Collision test target: fixed ~3 m north of the rocket spawn -->
     <model name="collision_test_target">
       <static>false</static>
-      <pose>20 0 20 0 0 0</pose>
+      <pose>20 0 50 0 0 0</pose>
       <link name="geranium_link">
         <pose>0 0 0 1.57079 0 0</pose>
         <gravity>false</gravity>
