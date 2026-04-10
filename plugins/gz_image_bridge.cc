@@ -827,14 +827,15 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
         t = g_telem;
     }
 
+    // ~75% of original scale: 1280+ → 2 (was 3), 640+ → 2 (was 2), else → 1
     int scale;
-    if      (fw >= 1280) scale = 3;
+    if      (fw >= 1280) scale = 2;
     else if (fw >=  640) scale = 2;
     else                 scale = 1;
 
     int cw     = 8 * scale;        // char width in pixels
     int ch     = 8 * scale;        // char height in pixels
-    int margin = 4 * scale;
+    int margin = 8 * scale;        // ~2× original margin → elements shifted inward
     char buf[64];
 
     if (!t.connected)
@@ -940,7 +941,7 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
     snprintf(buf, sizeof(buf), "ALT:%.1fm", static_cast<double>(t.altitude_m));
     drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch * 2 - 2, buf, scale);
 
-    // ── Bottom-left row 2: vertical speed ──
+    // ── Bottom-left row 3: vertical speed ──
     snprintf(buf, sizeof(buf), "VS:%+.1fm/s", static_cast<double>(t.vario_ms));
     drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch, buf, scale);
 

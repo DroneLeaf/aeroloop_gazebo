@@ -5,7 +5,7 @@
   Generated from target_chase_cam.sdf.j2 by target_chase/start.py.
   Parameters:
     orbit_radius   = 30.0 m
-    altitude       = 50.0 m
+    altitude       = 100.0 m
     chase_distance = 7.0 m
     hfov           = 1.2000 rad
 -->
@@ -91,7 +91,7 @@
          ═══════════════════════════════════════════════════════════════ -->
     <model name="target_geranium">
       <static>false</static>
-      <pose>30.0 0 50.0 0 0 0</pose>
+      <pose>30.0 0 100.0 0 0 0</pose>
       <link name="body">
         <gravity>false</gravity>
         <inertial>
@@ -121,7 +121,7 @@
          ═══════════════════════════════════════════════════════════════ -->
     <model name="chase_camera_rig">
       <static>false</static>
-      <pose>30.0 -7.0 50.0 0 0 1.5708</pose>
+      <pose>30.0 -7.0 100.0 0 0 1.5708</pose>
       <link name="cam_link">
         <gravity>false</gravity>
         <inertial>
@@ -135,8 +135,8 @@
           <camera>
             <horizontal_fov>1.200000</horizontal_fov>
             <image>
-              <width>640</width>
-              <height>480</height>
+              <width>1280</width>
+              <height>960</height>
               <format>RGB_INT8</format>
             </image>
             <clip>
@@ -154,7 +154,7 @@
 
     <gui fullscreen="0">
       <camera name="user_camera">
-        <pose>-35 0 55.0 0 0.2 0</pose>
+        <pose>-35 0 105.0 0 0.2 0</pose>
         <view_controller>orbit</view_controller>
         <projection_type>perspective</projection_type>
       </camera>
