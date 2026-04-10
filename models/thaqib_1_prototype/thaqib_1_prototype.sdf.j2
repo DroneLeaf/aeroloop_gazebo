@@ -5,14 +5,14 @@
       <pose>0 0 0 0 0 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
-        <mass>0.448522</mass>
+        <mass>{{ "%.6g"|format(mass) }}</mass>
         <inertia>
-          <ixx>0.00870895</ixx>
+          <ixx>{{ "%.6g"|format(ixx) }}</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.00870895</iyy>
+          <iyy>{{ "%.6g"|format(iyy) }}</iyy>
           <iyz>0</iyz>
-          <izz>0.0165132</izz>
+          <izz>{{ "%.6g"|format(izz) }}</izz>
         </inertia>
       </inertial>
       <collision name='base_link_inertia_collision'>
@@ -55,7 +55,7 @@
       </visual>
       <!-- FPV camera sensor (30 degrees below horizon) -->
       <sensor name='fpv_cam' type='camera'>
-        <pose>0 0 0.262 0 -1.396263402 0</pose>
+        <pose>0 0 0.262 0 {{ "%.10g"|format(fpv_cam_pitch_rad) }} 0</pose>
         <camera>
           <horizontal_fov>2.0</horizontal_fov>
           <image>
@@ -618,13 +618,13 @@
     <plugin name="gz::sim::systems::ViscousDragPlugin"
             filename="ViscousDragPlugin">
       <link_name>base_link</link_name>
-      <linear_damping_x>0.1</linear_damping_x>
-      <linear_damping_y>0.4</linear_damping_y>
-      <linear_damping_z>0.03</linear_damping_z>
-      <quadratic_damping_x>0.05</quadratic_damping_x>
-      <quadratic_damping_y>0.03</quadratic_damping_y>
-      <quadratic_damping_z>0.01</quadratic_damping_z>
-      <angular_damping>0.03</angular_damping>
+      <linear_damping_x>{{ "%.6g"|format(linear_damping_x) }}</linear_damping_x>
+      <linear_damping_y>{{ "%.6g"|format(linear_damping_y) }}</linear_damping_y>
+      <linear_damping_z>{{ "%.6g"|format(linear_damping_z) }}</linear_damping_z>
+      <quadratic_damping_x>{{ "%.6g"|format(quadratic_damping_x) }}</quadratic_damping_x>
+      <quadratic_damping_y>{{ "%.6g"|format(quadratic_damping_y) }}</quadratic_damping_y>
+      <quadratic_damping_z>{{ "%.6g"|format(quadratic_damping_z) }}</quadratic_damping_z>
+      <angular_damping>{{ "%.6g"|format(angular_damping) }}</angular_damping>
     </plugin>
 
     <static>0</static>

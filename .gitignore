@@ -5,3 +5,13 @@
 **/.config/*
 **/build/*
 
+# Rendered from .j2 templates by start.py — do not edit directly
+worlds/*.world
+worlds/*_vis.sdf
+models/rocket_drone/rocket_drone.sdf
+models/thaqib_1_prototype/thaqib_1_prototype.sdf
+models/betaloop_iris_with_standoffs/model.sdf
+models/rocket_drone_vis/model.sdf
+models/thaqib_1_prototype_vis/model.sdf
+models/iris_vis/model.sdf
+

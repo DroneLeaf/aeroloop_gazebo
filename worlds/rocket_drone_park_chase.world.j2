@@ -1,15 +1,7 @@
 <?xml version="1.0" ?>
-<!--
-  Visualization-only world for rocket_drone park chase with Simulink dynamics backend.
-  Gazebo renders only — physics engine present for WorldPoseCmd + JointVelocityCmd.
-  Drone pose is driven externally via ExternalPosePlugin (UDP 9010).
-  Rotor spinning driven by RotorVisualPlugin (UDP 9012).
-  Target: orbiting Shahed at altitude 50m, arm radius 30m, orbit speed 0.05 rad/s — patchable via start.py.
--->
 <sdf version="1.9">
   <world name="fpv_chase_park">
-    <gravity>0 0 0</gravity>
-    <physics name="realtime" type="ode">
+    <physics name="realtime" type="ignored">
       <max_step_size>0.004</max_step_size>
       <real_time_factor>1.0</real_time_factor>
     </physics>
@@ -22,6 +14,8 @@
     <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands">
     </plugin>
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu">
     </plugin>
 
     <scene>
@@ -50,15 +44,25 @@
       <direction>-0.5 0.1 -0.9</direction>
     </light>
 
-    <include>
-      <uri>model://baylands_terrain</uri>
-      <name>baylands_terrain</name>
-      <pose>-100 150 -0.77 0 0 0</pose>
-    </include>
-
     <model name="desert_plane">
       <static>true</static>
       <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>1000 1000</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>100</mu>
+                <mu2>50</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
         <visual name="visual">
           <cast_shadows>false</cast_shadows>
           <geometry>
@@ -75,14 +79,22 @@
       </link>
     </model>
 
-    <!-- Drone — visualization-only (included from vis model, no physics) -->
+    <!-- Rocket drone vehicle -->
     <include>
-      <uri>model://thaqib_1_prototype_vis</uri>
-      <name>thaqib_1_prototype</name>
-      <pose>0 0 0 0 0 0</pose>
+      <uri>{{ drone_uri }}</uri>
+      <name>{{ drone_name }}</name>
+      <pose>0 0 0.3 0 0 0</pose>
     </include>
 
-    <!-- Moving Shahed target: revolves around orbit_center in a circle -->
+    <include>
+      <uri>
+      model://baylands_terrain</uri>
+      <name>baylands_terrain</name>
+      <pose>-100 150 -0.77 0 0 0</pose>
+    </include>
+
+
+    <!-- Moving geranium target: revolves around orbit_center in a circle -->
     <model name="moving_target_drone">
       <static>false</static>
       <pose>0 0 50 0 0 0</pose>
@@ -136,8 +148,9 @@
           <mass>0.1</mass>
           <inertia><ixx>0.0001</ixx><iyy>0.0001</iyy><izz>0.0001</izz></inertia>
         </inertial>
-      </link>
-      <joint name="counter_joint" type="revolute">
+        </link>
+
+              <joint name="counter_joint" type="revolute">
         <pose relative_to="drone_stabilizer">0 0 0 0 0 0</pose>
         <parent>crank_link</parent>
         <child>drone_stabilizer</child>
@@ -160,6 +173,33 @@
             </mesh>
           </geometry>
         </visual>
+        <collision name="collision">
+          <pose>0 0 0 1.57079 0 3.14159</pose>
+          <geometry>
+            <mesh>
+              <uri>model://shahed_drone/meshes/shahed.glb</uri>
+              <scale>1 1 1</scale>
+            </mesh>
+          </geometry>
+          <surface>
+            <bounce>
+              <restitution_coefficient>0.1</restitution_coefficient>
+              <threshold>0.0</threshold>
+            </bounce>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact>
+              <ode>
+                <kp>100000</kp><kd>10</kd>
+                <max_vel>1.0</max_vel><min_depth>0.001</min_depth>
+              </ode>
+            </contact>
+          </surface>
+        </collision>
+        <sensor name="contact_sensor" type="contact">
+          <always_on>true</always_on>
+          <update_rate>50.0</update_rate>
+          <contact><collision>collision</collision></contact>
+        </sensor>
       </link>
       <joint name="roll_joint" type="revolute">
         <pose relative_to="drone_stabilizer">0 0 0 0 0 0</pose>
@@ -178,7 +218,7 @@
 
       <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
         <joint_name>orbit_joint</joint_name>
-        <initial_velocity>0.05</initial_velocity>
+        <initial_velocity>{{ "%.6g"|format(orbit_speed) }}</initial_velocity>
       </plugin>
       <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
         <joint_name>zigzag_joint</joint_name>

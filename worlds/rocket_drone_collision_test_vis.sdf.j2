@@ -72,15 +72,15 @@
 
     <!-- Drone — visualization-only (included from vis model, no physics) -->
     <include>
-      <uri>model://thaqib_1_prototype_vis</uri>
-      <name>thaqib_1_prototype</name>
+      <uri>{{ drone_vis_uri }}</uri>
+      <name>{{ drone_name }}</name>
       <pose>0 0 0 0 0 0</pose>
     </include>
 
     <!-- Collision test target: static geranium -->
     <model name="collision_test_target">
       <static>false</static>
-      <pose>20 0 50 0 0 0</pose>
+      <pose>{{ "%.4g"|format(target_x) }} {{ "%.4g"|format(target_y) }} {{ "%.4g"|format(target_z) }} 0 0 0</pose>
       <link name="geranium_link">
         <pose>0 0 0 1.57079 0 0</pose>
         <gravity>false</gravity>

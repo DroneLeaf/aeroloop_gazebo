@@ -1,0 +1,115 @@
+<?xml version="1.0" ?>
+<!-- Visualization-only rocket_drone: no BetaflightPlugin / LiftDrag / ViscousDrag.
+     Pose driven by ExternalPosePlugin (UDP 9010).
+     Rotor spin driven by RotorVisualPlugin (UDP 9012). -->
+<sdf version="1.9">
+  <model name="rocket_drone">
+    <static>false</static>
+
+    <link name="base_link">
+      <pose>0 0 0 0 0 0</pose>
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>{{ "%.6g"|format(mass) }}</mass>
+        <inertia>
+          <ixx>{{ "%.6g"|format(ixx) }}</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>{{ "%.6g"|format(iyy) }}</iyy><iyz>0</iyz>
+          <izz>{{ "%.6g"|format(izz) }}</izz>
+        </inertia>
+      </inertial>
+      <visual name="base_link_inertia_visual">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>0.001 0.001 0.001</scale>
+            <uri>model://rocket_drone/meshes/rocket_drone.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <script>
+            <name>Gazebo/DarkGrey</name>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+          </script>
+        </material>
+      </visual>
+      <sensor name="fpv_cam" type="camera">
+        <pose>0 0 0.262 0 {{ "%.10g"|format(fpv_cam_pitch_rad) }} 0</pose>
+        <camera>
+          <horizontal_fov>2.0</horizontal_fov>
+          <image><width>640</width><height>480</height></image>
+          <clip><near>0.05</near><far>15000</far></clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+        <visualize>1</visualize>
+      </sensor>
+      <visual name='front_right_leg_visual'>
+        <pose>0.13 -0.22 {{ "%.4g"|format(leg_z) }} 0 0 0</pose>
+        <geometry><cylinder><radius>0.005</radius><length>{{ "%.4g"|format(standoff_height) }}</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name='rear_left_leg_visual'>
+        <pose>-0.13 0.22 {{ "%.4g"|format(leg_z) }} 0 0 0</pose>
+        <geometry><cylinder><radius>0.005</radius><length>{{ "%.4g"|format(standoff_height) }}</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name='front_left_leg_visual'>
+        <pose>0.13 0.22 {{ "%.4g"|format(leg_z) }} 0 0 0</pose>
+        <geometry><cylinder><radius>0.005</radius><length>{{ "%.4g"|format(standoff_height) }}</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name='rear_right_leg_visual'>
+        <pose>-0.13 -0.22 {{ "%.4g"|format(leg_z) }} 0 0 0</pose>
+        <geometry><cylinder><radius>0.005</radius><length>{{ "%.4g"|format(standoff_height) }}</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <sensor name="chase_cam" type="camera">
+        <pose>-1.5 0 0.8 0 0.5236 0</pose>
+        <camera>
+          <horizontal_fov>1.4</horizontal_fov>
+          <image><width>640</width><height>480</height></image>
+          <clip><near>0.1</near><far>15000</far></clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+        <visualize>0</visualize>
+      </sensor>
+    </link>
+
+    <link name="rotor_0"><pose>0.13 -0.22 0.023 0 0 0</pose>
+      <inertial><mass>0.005</mass><inertia><ixx>9.75e-07</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000273104</iyy><iyz>0</iyz><izz>0.000274004</izz></inertia></inertial>
+      <visual name="rotor_0_visual"><geometry><mesh><scale>1 1 1</scale><uri>model://rocket_drone/meshes/rocket_drone_prop_ccw.dae</uri></mesh></geometry><material><script><name>Gazebo/Blue</name><uri>file://media/materials/scripts/gazebo.material</uri></script></material></visual>
+    </link>
+    <joint name="rotor_0_joint" type="revolute"><child>rotor_0</child><parent>base_link</parent><axis><xyz>0 0 1</xyz><limit><lower>-1e+16</lower><upper>1e+16</upper></limit><dynamics><damping>0.004</damping></dynamics></axis></joint>
+
+    <link name="rotor_1"><pose>-0.13 0.22 0.023 0 0 0</pose>
+      <inertial><mass>0.005</mass><inertia><ixx>9.75e-07</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000273104</iyy><iyz>0</iyz><izz>0.000274004</izz></inertia></inertial>
+      <visual name="rotor_1_visual"><geometry><mesh><scale>1 1 1</scale><uri>model://rocket_drone/meshes/rocket_drone_prop_ccw.dae</uri></mesh></geometry><material><script><name>Gazebo/DarkGrey</name><uri>file://media/materials/scripts/gazebo.material</uri></script></material></visual>
+    </link>
+    <joint name="rotor_1_joint" type="revolute"><child>rotor_1</child><parent>base_link</parent><axis><xyz>0 0 1</xyz><limit><lower>-1e+16</lower><upper>1e+16</upper></limit><dynamics><damping>0.004</damping></dynamics></axis></joint>
+
+    <link name="rotor_2"><pose>0.13 0.22 0.023 0 0 0</pose>
+      <inertial><mass>0.005</mass><inertia><ixx>9.75e-07</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000273104</iyy><iyz>0</iyz><izz>0.000274004</izz></inertia></inertial>
+      <visual name="rotor_2_visual"><geometry><mesh><scale>1 1 1</scale><uri>model://rocket_drone/meshes/rocket_drone_prop_cw.dae</uri></mesh></geometry><material><script><name>Gazebo/Blue</name><uri>file://media/materials/scripts/gazebo.material</uri></script></material></visual>
+    </link>
+    <joint name="rotor_2_joint" type="revolute"><child>rotor_2</child><parent>base_link</parent><axis><xyz>0 0 1</xyz><limit><lower>-1e+16</lower><upper>1e+16</upper></limit><dynamics><damping>0.004</damping></dynamics></axis></joint>
+
+    <link name="rotor_3"><pose>-0.13 -0.22 0.023 0 0 0</pose>
+      <inertial><mass>0.005</mass><inertia><ixx>9.75e-07</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000273104</iyy><iyz>0</iyz><izz>0.000274004</izz></inertia></inertial>
+      <visual name="rotor_3_visual"><geometry><mesh><scale>1 1 1</scale><uri>model://rocket_drone/meshes/rocket_drone_prop_cw.dae</uri></mesh></geometry><material><script><name>Gazebo/DarkGrey</name><uri>file://media/materials/scripts/gazebo.material</uri></script></material></visual>
+    </link>
+    <joint name="rotor_3_joint" type="revolute"><child>rotor_3</child><parent>base_link</parent><axis><xyz>0 0 1</xyz><limit><lower>-1e+16</lower><upper>1e+16</upper></limit><dynamics><damping>0.004</damping></dynamics></axis></joint>
+
+    <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
+      <listen_port>9010</listen_port>
+    </plugin>
+    <plugin filename="RotorVisualPlugin" name="gz::sim::systems::RotorVisualPlugin">
+      <listen_port>9012</listen_port>
+      <max_velocity>100.0</max_velocity>
+      <spin_dir_0>1</spin_dir_0>
+      <spin_dir_1>1</spin_dir_1>
+      <spin_dir_2>-1</spin_dir_2>
+      <spin_dir_3>-1</spin_dir_3>
+    </plugin>
+  </model>
+</sdf>
