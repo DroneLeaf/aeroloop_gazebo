@@ -818,6 +818,153 @@ static void drawElem(uint8_t *frame, int fw, int fh, int ch_count,
     drawOsdStr(frame, fw, fh, ch_count, x, y, text, scale, r, g, b);
 }
 
+// ─── Artificial Horizon Indicator ────────────────────────────────────────────
+
+// Draw a thick line between two points with shadow for contrast.
+static void drawLine(uint8_t *frame, int fw, int fh, int ch_count,
+                     int x0, int y0, int x1, int y1, int thickness,
+                     uint8_t r, uint8_t g, uint8_t b)
+{
+    float dx = static_cast<float>(x1 - x0);
+    float dy = static_cast<float>(y1 - y0);
+    float len = std::sqrt(dx * dx + dy * dy);
+    if (len < 0.5f) {
+        if (static_cast<unsigned>(x0) < static_cast<unsigned>(fw) &&
+            static_cast<unsigned>(y0) < static_cast<unsigned>(fh)) {
+            int off = (y0 * fw + x0) * ch_count;
+            frame[off] = r; frame[off+1] = g; frame[off+2] = b;
+        }
+        return;
+    }
+    float ux = dx / len, uy = dy / len;
+    float nx = -uy,      ny = ux;
+    int half = thickness / 2;
+    int steps = static_cast<int>(len + 0.5f);
+    for (int s = 0; s <= steps; s++) {
+        float cx = x0 + ux * s;
+        float cy = y0 + uy * s;
+        for (int t = -half; t <= half; t++) {
+            int px = static_cast<int>(cx + nx * t);
+            int py = static_cast<int>(cy + ny * t);
+            if (static_cast<unsigned>(px) < static_cast<unsigned>(fw) &&
+                static_cast<unsigned>(py) < static_cast<unsigned>(fh)) {
+                int off = (py * fw + px) * ch_count;
+                frame[off]     = r;
+                frame[off + 1] = g;
+                frame[off + 2] = b;
+            }
+        }
+    }
+}
+
+// Draw a line with a black shadow offset by 1 pixel.
+static void drawLineShadowed(uint8_t *frame, int fw, int fh, int ch_count,
+                             int x0, int y0, int x1, int y1, int thickness,
+                             uint8_t r, uint8_t g, uint8_t b)
+{
+    drawLine(frame, fw, fh, ch_count, x0+1, y0+1, x1+1, y1+1, thickness, 0, 0, 0);
+    drawLine(frame, fw, fh, ch_count, x0, y0, x1, y1, thickness, r, g, b);
+}
+
+// Rotate point (px,py) by cos_r/sin_r about origin, then translate to (cx,cy).
+static inline void horizProject(float px, float py, float cos_r, float sin_r,
+                                float cx, float cy, int &sx, int &sy)
+{
+    sx = static_cast<int>(cx + px * cos_r - py * sin_r);
+    sy = static_cast<int>(cy + px * sin_r + py * cos_r);
+}
+
+// Draw the artificial horizon overlay.
+// roll_deg/pitch_deg are aircraft attitude from Betaflight MSP_ATTITUDE.
+static void drawHorizon(uint8_t *frame, int fw, int fh, int ch_count,
+                        float roll_deg, float pitch_deg, int scale)
+{
+    float cx = fw / 2.0f;
+    float cy = fh / 2.0f;
+
+    // Pixels per degree — ±60° spans half the frame height.
+    float ppd = fh / 120.0f;
+
+    // Roll: aircraft rolls right → horizon tilts left-up / right-down.
+    float roll_rad = roll_deg * static_cast<float>(M_PI) / 180.0f;
+    float cos_r = std::cos(roll_rad);
+    float sin_r = std::sin(roll_rad);
+
+    // Pitch offset (screen Y-down): nose up → horizon below center.
+    float pitch_py = pitch_deg * ppd;
+
+    // Dimensions
+    int bar_half  = fw / 4;            // each horizon wing half-width
+    int gap       = 12 * scale;        // center gap
+    int thickness = std::max(2, scale + 1);
+    int thin      = std::max(1, scale);
+
+    // ── Horizon bar (cyan, two wings) ──
+    int sx0, sy0, sx1, sy1;
+
+    // Left wing
+    horizProject(static_cast<float>(-bar_half), pitch_py, cos_r, sin_r, cx, cy, sx0, sy0);
+    horizProject(static_cast<float>(-gap),      pitch_py, cos_r, sin_r, cx, cy, sx1, sy1);
+    drawLineShadowed(frame, fw, fh, ch_count, sx0, sy0, sx1, sy1, thickness, 0, 230, 230);
+
+    // Right wing
+    horizProject(static_cast<float>(gap),       pitch_py, cos_r, sin_r, cx, cy, sx0, sy0);
+    horizProject(static_cast<float>(bar_half),  pitch_py, cos_r, sin_r, cx, cy, sx1, sy1);
+    drawLineShadowed(frame, fw, fh, ch_count, sx0, sy0, sx1, sy1, thickness, 0, 230, 230);
+
+    // ── Pitch ladder (every 10°, ±30°) ──
+    int ladder_half = fw / 8;
+    int tick_len    = 5 * scale;
+    for (int deg = -30; deg <= 30; deg += 10) {
+        if (deg == 0) continue;
+        float mark_py = (pitch_deg - deg) * ppd;
+
+        // Color: above horizon = sky blue, below = earthy brown
+        uint8_t mr, mg, mb;
+        if (deg > 0) { mr = 100; mg = 180; mb = 255; }
+        else         { mr = 200; mg = 150; mb = 80;  }
+
+        if (deg < 0) {
+            // Below horizon: two short segments with center gap (standard convention)
+            int seg = ladder_half / 3;
+            horizProject(static_cast<float>(-ladder_half), mark_py, cos_r, sin_r, cx, cy, sx0, sy0);
+            horizProject(static_cast<float>(-seg),         mark_py, cos_r, sin_r, cx, cy, sx1, sy1);
+            drawLineShadowed(frame, fw, fh, ch_count, sx0, sy0, sx1, sy1, thin, mr, mg, mb);
+            horizProject(static_cast<float>(seg),          mark_py, cos_r, sin_r, cx, cy, sx0, sy0);
+            horizProject(static_cast<float>(ladder_half),  mark_py, cos_r, sin_r, cx, cy, sx1, sy1);
+            drawLineShadowed(frame, fw, fh, ch_count, sx0, sy0, sx1, sy1, thin, mr, mg, mb);
+        } else {
+            // Above horizon: continuous line
+            horizProject(static_cast<float>(-ladder_half), mark_py, cos_r, sin_r, cx, cy, sx0, sy0);
+            horizProject(static_cast<float>(ladder_half),  mark_py, cos_r, sin_r, cx, cy, sx1, sy1);
+            drawLineShadowed(frame, fw, fh, ch_count, sx0, sy0, sx1, sy1, thin, mr, mg, mb);
+        }
+
+        // Vertical end ticks pointing toward horizon
+        float tick_dir = (deg > 0) ? static_cast<float>(tick_len)
+                                   : static_cast<float>(-tick_len);
+        int tx0, ty0, tx1, ty1;
+        horizProject(static_cast<float>(-ladder_half), mark_py,            cos_r, sin_r, cx, cy, tx0, ty0);
+        horizProject(static_cast<float>(-ladder_half), mark_py + tick_dir, cos_r, sin_r, cx, cy, tx1, ty1);
+        drawLineShadowed(frame, fw, fh, ch_count, tx0, ty0, tx1, ty1, thin, mr, mg, mb);
+        horizProject(static_cast<float>(ladder_half),  mark_py,            cos_r, sin_r, cx, cy, tx0, ty0);
+        horizProject(static_cast<float>(ladder_half),  mark_py + tick_dir, cos_r, sin_r, cx, cy, tx1, ty1);
+        drawLineShadowed(frame, fw, fh, ch_count, tx0, ty0, tx1, ty1, thin, mr, mg, mb);
+    }
+
+    // ── Fixed aircraft reference (yellow wings at dead center) ──
+    int icx = static_cast<int>(cx);
+    int icy = static_cast<int>(cy);
+    int wing = 18 * scale;
+    drawLineShadowed(frame, fw, fh, ch_count,
+                     icx - gap - wing, icy, icx - gap, icy, thickness, 255, 220, 0);
+    drawLineShadowed(frame, fw, fh, ch_count,
+                     icx + gap, icy, icx + gap + wing, icy, thickness, 255, 220, 0);
+    // Center dot
+    drawLineShadowed(frame, fw, fh, ch_count,
+                     icx - 1, icy, icx + 1, icy, thickness + 1, 255, 220, 0);
+}
+
 // Composite the full OSD onto a raw frame buffer.
 static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
 {
@@ -845,6 +992,9 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
         drawElem(frame, fw, fh, ch_count, x, ch, msg, scale, 255, 80, 80);
         return;
     }
+
+    // ── Artificial horizon indicator (drawn first so text overlays on top) ──
+    drawHorizon(frame, fw, fh, ch_count, t.roll_deg, t.pitch_deg, scale);
 
     // ── Top-left: roll ──
     snprintf(buf, sizeof(buf), "R:%+.1f", static_cast<double>(t.roll_deg));
