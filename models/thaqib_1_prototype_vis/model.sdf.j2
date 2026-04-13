@@ -18,7 +18,7 @@
         </inertia>
       </inertial>
       <visual name="base_link_inertia_visual">
-        <pose>0 0 -0.10 0 0 0</pose>
+        <pose>0 0 -0.10 0 0 0.7854</pose>
         <geometry>
           <mesh>
             <scale>0.001 0.001 0.001</scale>
@@ -56,25 +56,25 @@
     </link>
 
     <!-- X-frame rotor layout -->
-    <link name="rotor_0"><pose>0.130 0 0.023 0 0 0</pose>
+    <link name="rotor_0"><pose>0.0848 -0.0848 0.023 0 0 0</pose>
       <inertial><mass>0.005</mass><inertia><ixx>9.75e-07</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000273104</iyy><iyz>0</iyz><izz>0.000274004</izz></inertia></inertial>
       <visual name="rotor_0_visual"><pose>-0.01 0 -0.11 0 0 0</pose><geometry><mesh><scale>0.5 0.5 0.5</scale><uri>model://thaqib_1_prototype/meshes/rocket_drone_prop_ccw.dae</uri></mesh></geometry><material><script><name>Gazebo/Blue</name><uri>file://media/materials/scripts/gazebo.material</uri></script></material></visual>
     </link>
     <joint name="rotor_0_joint" type="revolute"><child>rotor_0</child><parent>base_link</parent><axis><xyz>0 0 1</xyz><limit><lower>-1e+16</lower><upper>1e+16</upper></limit><dynamics><damping>0.004</damping></dynamics></axis></joint>
 
-    <link name="rotor_1"><pose>-0.130 0 0.023 0 0 0</pose>
+    <link name="rotor_1"><pose>-0.0848 0.0848 0.023 0 0 0</pose>
       <inertial><mass>0.005</mass><inertia><ixx>9.75e-07</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000273104</iyy><iyz>0</iyz><izz>0.000274004</izz></inertia></inertial>
       <visual name="rotor_1_visual"><pose>0.01 0 -0.11 0 0 0</pose><geometry><mesh><scale>0.5 0.5 0.5</scale><uri>model://thaqib_1_prototype/meshes/rocket_drone_prop_ccw.dae</uri></mesh></geometry><material><script><name>Gazebo/DarkGrey</name><uri>file://media/materials/scripts/gazebo.material</uri></script></material></visual>
     </link>
     <joint name="rotor_1_joint" type="revolute"><child>rotor_1</child><parent>base_link</parent><axis><xyz>0 0 1</xyz><limit><lower>-1e+16</lower><upper>1e+16</upper></limit><dynamics><damping>0.004</damping></dynamics></axis></joint>
 
-    <link name="rotor_2"><pose>0 0.130 0.023 0 0 0</pose>
+    <link name="rotor_2"><pose>0.0848 0.0848 0.023 0 0 0</pose>
       <inertial><mass>0.005</mass><inertia><ixx>9.75e-07</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000273104</iyy><iyz>0</iyz><izz>0.000274004</izz></inertia></inertial>
       <visual name="rotor_2_visual"><pose>0 -0.01 -0.11 0 0 0</pose><geometry><mesh><scale>0.5 0.5 0.5</scale><uri>model://thaqib_1_prototype/meshes/rocket_drone_prop_cw.dae</uri></mesh></geometry><material><script><name>Gazebo/Blue</name><uri>file://media/materials/scripts/gazebo.material</uri></script></material></visual>
     </link>
     <joint name="rotor_2_joint" type="revolute"><child>rotor_2</child><parent>base_link</parent><axis><xyz>0 0 1</xyz><limit><lower>-1e+16</lower><upper>1e+16</upper></limit><dynamics><damping>0.004</damping></dynamics></axis></joint>
 
-    <link name="rotor_3"><pose>0 -0.130 0.023 0 0 0</pose>
+    <link name="rotor_3"><pose>-0.0848 -0.0848 0.023 0 0 0</pose>
       <inertial><mass>0.005</mass><inertia><ixx>9.75e-07</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000273104</iyy><iyz>0</iyz><izz>0.000274004</izz></inertia></inertial>
       <visual name="rotor_3_visual"><pose>0 0.01 -0.11 0 0 0</pose><geometry><mesh><scale>0.5 0.5 0.5</scale><uri>model://thaqib_1_prototype/meshes/rocket_drone_prop_cw.dae</uri></mesh></geometry><material><script><name>Gazebo/DarkGrey</name><uri>file://media/materials/scripts/gazebo.material</uri></script></material></visual>
     </link>
