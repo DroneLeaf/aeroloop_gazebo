@@ -83,6 +83,31 @@ static int  g_msp_port    = 5763;   // UART3 by default (5760 + uart_number)
 // Camera pitch (degrees) — used for crosshair Z-axis projection.
 static double g_cam_pitch_deg = -80.0;
 
+// ── Target proximity detection ──────────────────────────────────────────────
+// When --target-model is set, we track the target's live pose (position +
+// orientation) via dynamic_pose/info and check whether the drone is within
+// the target's oriented bounding box (OBB).  The drone-target delta is
+// rotated into the target's local frame before comparing against the
+// half-extents.  The flag is live — clears when the drone leaves.
+//
+// Half-extents default to the shahed.glb mesh bounds + ~10% tolerance,
+// remapped from mesh-local to model-local frame (link pose = -90° roll).
+//   model X = mesh X (wingspan)    model Y = mesh Z (fuselage)    model Z = -mesh Y (thickness)
+static std::string g_target_model;          // SDF <name> of the target model
+static double g_target_bbox_x = 0.792;     // half-extent in model-local X (wingspan) (m)
+static double g_target_bbox_y = 1.047;     // half-extent in model-local Y (fuselage) (m)
+static double g_target_bbox_z = 0.186;     // half-extent in model-local Z (thickness) (m)
+static double g_hit_box_scale = 1.0;       // uniform scale applied to all half-extents
+static std::atomic<bool> g_target_reached{false};
+
+struct TargetPose {
+    double x = 0, y = 0, z = 0;
+    double qw = 1, qx = 0, qy = 0, qz = 0;
+    bool valid = false;
+};
+static std::mutex g_target_mutex;
+static TargetPose g_target_pose;
+
 // Raw-frame UDP stream — forks ffmpeg to encode H.264 and send mpegts.
 static std::string g_stream_dest;      // e.g. "10.0.0.87:5000", empty = disabled
 static int         g_stream_fd = -1;   // write-end of pipe to ffmpeg child
@@ -897,7 +922,6 @@ static void drawHorizon(uint8_t *frame, int fw, int fh, int ch_count,
     int bar_half  = fw / 4;            // each horizon wing half-width
     int gap       = 12 * scale;        // center gap
     int thickness = std::max(2, scale + 1);
-    int thin      = std::max(1, scale);
 
     // ── Horizon bar (cyan, two wings) ──
     int sx0, sy0, sx1, sy1;
@@ -911,46 +935,6 @@ static void drawHorizon(uint8_t *frame, int fw, int fh, int ch_count,
     horizProject(static_cast<float>(gap),       pitch_py, cos_r, sin_r, cx, cy, sx0, sy0);
     horizProject(static_cast<float>(bar_half),  pitch_py, cos_r, sin_r, cx, cy, sx1, sy1);
     drawLineShadowed(frame, fw, fh, ch_count, sx0, sy0, sx1, sy1, thickness, 0, 230, 230);
-
-    // ── Pitch ladder (every 10°, ±30°) ──
-    int ladder_half = fw / 8;
-    int tick_len    = 5 * scale;
-    for (int deg = -30; deg <= 30; deg += 10) {
-        if (deg == 0) continue;
-        float mark_py = (pitch_deg - deg) * ppd;
-
-        // Color: above horizon = sky blue, below = earthy brown
-        uint8_t mr, mg, mb;
-        if (deg > 0) { mr = 100; mg = 180; mb = 255; }
-        else         { mr = 200; mg = 150; mb = 80;  }
-
-        if (deg < 0) {
-            // Below horizon: two short segments with center gap (standard convention)
-            int seg = ladder_half / 3;
-            horizProject(static_cast<float>(-ladder_half), mark_py, cos_r, sin_r, cx, cy, sx0, sy0);
-            horizProject(static_cast<float>(-seg),         mark_py, cos_r, sin_r, cx, cy, sx1, sy1);
-            drawLineShadowed(frame, fw, fh, ch_count, sx0, sy0, sx1, sy1, thin, mr, mg, mb);
-            horizProject(static_cast<float>(seg),          mark_py, cos_r, sin_r, cx, cy, sx0, sy0);
-            horizProject(static_cast<float>(ladder_half),  mark_py, cos_r, sin_r, cx, cy, sx1, sy1);
-            drawLineShadowed(frame, fw, fh, ch_count, sx0, sy0, sx1, sy1, thin, mr, mg, mb);
-        } else {
-            // Above horizon: continuous line
-            horizProject(static_cast<float>(-ladder_half), mark_py, cos_r, sin_r, cx, cy, sx0, sy0);
-            horizProject(static_cast<float>(ladder_half),  mark_py, cos_r, sin_r, cx, cy, sx1, sy1);
-            drawLineShadowed(frame, fw, fh, ch_count, sx0, sy0, sx1, sy1, thin, mr, mg, mb);
-        }
-
-        // Vertical end ticks pointing toward horizon
-        float tick_dir = (deg > 0) ? static_cast<float>(tick_len)
-                                   : static_cast<float>(-tick_len);
-        int tx0, ty0, tx1, ty1;
-        horizProject(static_cast<float>(-ladder_half), mark_py,            cos_r, sin_r, cx, cy, tx0, ty0);
-        horizProject(static_cast<float>(-ladder_half), mark_py + tick_dir, cos_r, sin_r, cx, cy, tx1, ty1);
-        drawLineShadowed(frame, fw, fh, ch_count, tx0, ty0, tx1, ty1, thin, mr, mg, mb);
-        horizProject(static_cast<float>(ladder_half),  mark_py,            cos_r, sin_r, cx, cy, tx0, ty0);
-        horizProject(static_cast<float>(ladder_half),  mark_py + tick_dir, cos_r, sin_r, cx, cy, tx1, ty1);
-        drawLineShadowed(frame, fw, fh, ch_count, tx0, ty0, tx1, ty1, thin, mr, mg, mb);
-    }
 
     // ── Fixed aircraft reference (yellow wings at dead center) ──
     int icx = static_cast<int>(cx);
@@ -1110,6 +1094,21 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
     int hclen = static_cast<int>(strlen(buf));
     drawElem(frame, fw, fh, ch_count,
              (fw - hclen * cw) / 2, fh - margin - ch, buf, scale);
+
+    // ── TARGET REACHED indicator (live — clears when drone leaves bbox) ──
+    if (g_target_reached.load(std::memory_order_relaxed))
+    {
+        const char *hit_msg = "TARGET REACHED";
+        int hit_len = static_cast<int>(strlen(hit_msg));
+        int hit_x = (fw - hit_len * cw) / 2;
+        int hit_y = fh / 2 + ch * 3;  // below center
+        // Flashing effect: alternate between bright red and yellow
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        bool flash = ((ms / 500) % 2) == 0;
+        uint8_t hr = 255, hg = flash ? 50u : 220u, hb = flash ? 50u : 0u;
+        drawElem(frame, fw, fh, ch_count, hit_x, hit_y, hit_msg, scale, hr, hg, hb);
+    }
 }
 
 // ─── Gazebo pose callback (for forward ground speed) ─────────────────────────
@@ -1117,6 +1116,107 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
 static void onPoseV(const gz::msgs::Pose_V &_msg)
 {
     if (g_model_name.empty()) return;
+
+    // ── Track target model pose ──
+    if (!g_target_model.empty())
+    {
+        double drone_x = 0, drone_y = 0, drone_z = 0;
+        bool   have_drone = false;
+        double tgt_x = 0, tgt_y = 0, tgt_z = 0;
+        double tgt_qw = 1, tgt_qx = 0, tgt_qy = 0, tgt_qz = 0;
+        bool   have_target = false;
+
+        for (int i = 0; i < _msg.pose_size(); i++)
+        {
+            const auto &p = _msg.pose(i);
+            if (p.name() == g_model_name) {
+                drone_x = p.position().x();
+                drone_y = p.position().y();
+                drone_z = p.position().z();
+                have_drone = true;
+            }
+            if (p.name() == g_target_model) {
+                tgt_x  = p.position().x();
+                tgt_y  = p.position().y();
+                tgt_z  = p.position().z();
+                tgt_qw = p.orientation().w();
+                tgt_qx = p.orientation().x();
+                tgt_qy = p.orientation().y();
+                tgt_qz = p.orientation().z();
+                have_target = true;
+                {
+                    std::lock_guard<std::mutex> lk(g_target_mutex);
+                    g_target_pose = {tgt_x, tgt_y, tgt_z,
+                                     tgt_qw, tgt_qx, tgt_qy, tgt_qz, true};
+                }
+            }
+        }
+
+        if (have_drone && have_target) {
+            // Delta in world frame
+            double wx = drone_x - tgt_x;
+            double wy = drone_y - tgt_y;
+            double wz = drone_z - tgt_z;
+
+            // Detect world reset: if drone teleports > 10 m in one pose update,
+            // clear the latch so a new run can trigger it again.
+            {
+                static double prev_dx = 0, prev_dy = 0, prev_dz = 0;
+                static bool prev_valid = false;
+                double jx = drone_x - prev_dx;
+                double jy = drone_y - prev_dy;
+                double jz = drone_z - prev_dz;
+                double jump = jx*jx + jy*jy + jz*jz;
+                prev_dx = drone_x; prev_dy = drone_y; prev_dz = drone_z;
+                if (prev_valid && jump > 100.0) {  // > 10 m jump
+                    if (g_target_reached.load(std::memory_order_relaxed)) {
+                        fprintf(stderr, "[gz_image_bridge] Reset detected (jump=%.1f m), clearing TARGET REACHED latch\n", std::sqrt(jump));
+                        g_target_reached.store(false, std::memory_order_release);
+                    }
+                }
+                prev_valid = true;
+            }
+
+            // Rotate delta into target's local frame using inverse(target_quat).
+            // For a unit quaternion, inverse = conjugate (w, -x, -y, -z).
+            // R^T * v  where R is the rotation matrix from the quaternion:
+            double lx = wx * (1.0 - 2.0*(tgt_qy*tgt_qy + tgt_qz*tgt_qz))
+                      + wy * (2.0*(tgt_qx*tgt_qy + tgt_qw*tgt_qz))
+                      + wz * (2.0*(tgt_qx*tgt_qz - tgt_qw*tgt_qy));
+            double ly = wx * (2.0*(tgt_qx*tgt_qy - tgt_qw*tgt_qz))
+                      + wy * (1.0 - 2.0*(tgt_qx*tgt_qx + tgt_qz*tgt_qz))
+                      + wz * (2.0*(tgt_qy*tgt_qz + tgt_qw*tgt_qx));
+            double lz = wx * (2.0*(tgt_qx*tgt_qz + tgt_qw*tgt_qy))
+                      + wy * (2.0*(tgt_qy*tgt_qz - tgt_qw*tgt_qx))
+                      + wz * (1.0 - 2.0*(tgt_qx*tgt_qx + tgt_qy*tgt_qy));
+
+            bool inside = std::abs(lx) <= g_target_bbox_x * g_hit_box_scale
+                       && std::abs(ly) <= g_target_bbox_y * g_hit_box_scale
+                       && std::abs(lz) <= g_target_bbox_z * g_hit_box_scale;
+            bool was_inside = g_target_reached.load(std::memory_order_relaxed);
+
+            // Throttled debug: print proximity info once/sec when within 5 m
+            double dist = std::sqrt(wx*wx + wy*wy + wz*wz);
+            {
+                static auto last_dbg = std::chrono::steady_clock::now();
+                auto now_dbg = std::chrono::steady_clock::now();
+                if (dist < 5.0 && std::chrono::duration_cast<std::chrono::milliseconds>(now_dbg - last_dbg).count() > 1000) {
+                    last_dbg = now_dbg;
+                    fprintf(stderr, "[OBB-DBG] dist=%.2f  quat=(%.4f,%.4f,%.4f,%.4f)  world_d=(%.3f,%.3f,%.3f)  local_d=(%.3f,%.3f,%.3f)  bbox=(%.3f,%.3f,%.3f)  %s\n",
+                            dist, tgt_qw, tgt_qx, tgt_qy, tgt_qz,
+                            wx, wy, wz, lx, ly, lz,
+                            g_target_bbox_x, g_target_bbox_y, g_target_bbox_z,
+                            inside ? "INSIDE" : "outside");
+                }
+            }
+
+            if (inside && !was_inside) {
+                fprintf(stderr, "[gz_image_bridge] TARGET REACHED! drone=(%.2f,%.2f,%.2f) target=(%.2f,%.2f,%.2f) local=(%.2f,%.2f,%.2f)\n",
+                        drone_x, drone_y, drone_z, tgt_x, tgt_y, tgt_z, lx, ly, lz);
+                g_target_reached.store(true, std::memory_order_release);
+            }
+        }
+    }
 
     for (int i = 0; i < _msg.pose_size(); i++)
     {
@@ -1229,6 +1329,16 @@ int main(int argc, char **argv)
             g_display_mode = true;
         else if (strcmp(argv[i], "--hidden") == 0)
             g_hidden_mode = true;
+        else if (strcmp(argv[i], "--target-model") == 0 && i + 1 < argc)
+            g_target_model = argv[++i];
+        else if (strcmp(argv[i], "--target-bbox") == 0 && i + 1 < argc) {
+            // Parse "X,Y,Z" half-extents
+            char *bbox_str = argv[++i];
+            if (sscanf(bbox_str, "%lf,%lf,%lf", &g_target_bbox_x, &g_target_bbox_y, &g_target_bbox_z) != 3)
+                fprintf(stderr, "[gz_image_bridge] Warning: --target-bbox expects X,Y,Z (got '%s')\n", bbox_str);
+        }
+        else if (strcmp(argv[i], "--hit-box-scale") == 0 && i + 1 < argc)
+            g_hit_box_scale = atof(argv[++i]);
         else if (topic.empty())
             topic = argv[i];
     }
@@ -1242,7 +1352,10 @@ int main(int argc, char **argv)
             "  --cam-pitch DEG    Camera pitch in degrees (default: -80)\n"
             "  --display          Render in SDL2 window (zero-latency, no stdout)\n"
             "  --hidden           With --display: create SDL2 window hidden (SHM still active)\n"
-            "  --no-osd           Disable OSD overlay and OSD shared memory segment\n",
+            "  --no-osd           Disable OSD overlay and OSD shared memory segment\n"
+            "  --target-model N   SDF model name of the target (enables proximity detection)\n"
+            "  --target-bbox X,Y,Z  Half-extents in metres (default: 0.792,1.047,0.186)\n"
+            "  --hit-box-scale S  Uniform scale for hit box (default: 1.0)\n",
             argv[0]);
         return 1;
     }
@@ -1313,6 +1426,9 @@ int main(int argc, char **argv)
             if (node.Subscribe(pose_topic, onPoseV))
                 fprintf(stderr, "[gz_image_bridge] Tracking '%s' via %s for FWD speed\n",
                         g_model_name.c_str(), pose_topic.c_str());
+            if (!g_target_model.empty())
+                fprintf(stderr, "[gz_image_bridge] Target proximity: '%s' bbox=(%.3f,%.3f,%.3f) scale=%.2f\n",
+                        g_target_model.c_str(), g_target_bbox_x, g_target_bbox_y, g_target_bbox_z, g_hit_box_scale);
         }
     }
 

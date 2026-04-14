@@ -16,9 +16,23 @@ Features:
   silently dropped if the downstream consumer can't keep up.
 - **OSD overlay** (always enabled) — composites FPV-style telemetry (battery, attitude,
   altitude, flight mode, timer) by querying Betaflight SITL via MSP over TCP.
+- **Target proximity detection** — when `--target-model` is set, monitors the drone's
+  distance to the named target via the Gazebo `dynamic_pose/info` topic. Displays
+  a flashing "TARGET REACHED" OSD indicator when the drone enters the target's
+  oriented bounding box (OBB). The indicator latches until world reset.
+  Use `--hit-box-scale` to uniformly enlarge/shrink the hit box.
 
 ```
-Usage: gz_image_bridge <image_topic> [--msp-port PORT]
+Usage: gz_image_bridge <image_topic> [options]
+  --msp-port N           MSP TCP port (default: 5763 = UART3)
+  --stream H:P           Stream H.264 over UDP to host:port
+  --cam-pitch DEG        Camera pitch in degrees (default: -80)
+  --display              Render in SDL2 window (zero-latency)
+  --hidden               With --display: create window hidden (SHM still active)
+  --no-osd               Disable OSD overlay
+  --target-model NAME    SDF model name of the target (enables proximity detection)
+  --target-bbox X,Y,Z    Half-extents in metres (default: 0.792,1.047,0.186)
+  --hit-box-scale S      Uniform scale for hit box (default: 1.0)
 ```
 
 First frame metadata is printed to stderr: `IMGMETA <width> <height> <pix_fmt>`

@@ -3,8 +3,8 @@
   <model name="shahed_drone">
     <static>false</static>
     <link name="body">
-      <pose>0 0 0 1.5708 -1.5708 3.1416</pose>
-      <!-- <pose>0 0 0 0 0 3.1416</pose> -->
+      <!-- <pose>0 0 0 1.5708 -1.5708 3.1416</pose> -->
+      <pose>0 0 0 -1.5708 0 0</pose>
       <gravity>false</gravity>
       <inertial>
         <mass>1.0</mass>

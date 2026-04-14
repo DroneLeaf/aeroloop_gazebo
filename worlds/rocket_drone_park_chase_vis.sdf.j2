@@ -85,7 +85,7 @@
     <!-- Moving Shahed target: revolves around orbit_center in a circle -->
     <model name="moving_target_drone">
       <static>false</static>
-      <pose>0 0 50 0 0 0</pose>
+      <pose>0 0 {{ "%.4g"|format(target_altitude) }} 0 0 0</pose>
 
       <link name="orbit_center">
         <gravity>false</gravity>
@@ -100,7 +100,7 @@
       </joint>
 
       <link name="arm_link">
-        <pose relative_to="orbit_center">30 0 0 0 0 0</pose>
+        <pose relative_to="orbit_center">{{ "%.4g"|format(orbit_radius) }} 0 0 0 0 0</pose>
         <gravity>false</gravity>
         <inertial>
           <mass>0.1</mass>
