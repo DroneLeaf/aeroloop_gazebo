@@ -88,12 +88,20 @@ static double g_cam_pitch_deg = -80.0;
 // orientation) via dynamic_pose/info and check whether the drone is within
 // the target's oriented bounding box (OBB).  The drone-target delta is
 // rotated into the target's local frame before comparing against the
-// half-extents.  The flag is live — clears when the drone leaves.
+// half-extents.  The flag latches until a world reset is detected.
+//
+// For multi-link models (e.g. park_chase orbit rig), the model-level pose
+// is at the root (orbit center), not the visual body.  Use --target-link
+// to specify the link whose world pose should be tracked.  The link pose
+// from dynamic_pose/info is relative to the model, so we compose:
+//   link_world_pos  = model_pos + R(model_q) * link_rel_pos
+//   link_world_quat = model_q * link_rel_q
 //
 // Half-extents default to the shahed.glb mesh bounds + ~10% tolerance,
 // remapped from mesh-local to model-local frame (link pose = -90° roll).
 //   model X = mesh X (wingspan)    model Y = mesh Z (fuselage)    model Z = -mesh Y (thickness)
 static std::string g_target_model;          // SDF <name> of the target model
+static std::string g_target_link;           // optional: link name within model
 static double g_target_bbox_x = 0.792;     // half-extent in model-local X (wingspan) (m)
 static double g_target_bbox_y = 1.047;     // half-extent in model-local Y (fuselage) (m)
 static double g_target_bbox_z = 0.186;     // half-extent in model-local Z (thickness) (m)
@@ -1122,34 +1130,107 @@ static void onPoseV(const gz::msgs::Pose_V &_msg)
     {
         double drone_x = 0, drone_y = 0, drone_z = 0;
         bool   have_drone = false;
-        double tgt_x = 0, tgt_y = 0, tgt_z = 0;
-        double tgt_qw = 1, tgt_qx = 0, tgt_qy = 0, tgt_qz = 0;
-        bool   have_target = false;
+
+        // Model-level pose (world frame) — static: the model root of a
+        // multi-link target (e.g. orbit center) may only appear once on
+        // dynamic_pose/info because it never moves after spawning.
+        static double mdl_x = 0, mdl_y = 0, mdl_z = 0;
+        static double mdl_qw = 1, mdl_qx = 0, mdl_qy = 0, mdl_qz = 0;
+        static bool   have_model = false;
+
+        // Link-relative pose (relative to model, only when --target-link set)
+        // — static: model and link may arrive in different Pose_V messages.
+        static double lnk_x = 0, lnk_y = 0, lnk_z = 0;
+        static double lnk_qw = 1, lnk_qx = 0, lnk_qy = 0, lnk_qz = 0;
+        static bool   have_link = false;
+
+        // Build the scoped link name once (globals are set before subscription)
+        static const std::string link_scoped =
+            g_target_link.empty() ? std::string()
+                                  : g_target_model + "::" + g_target_link;
 
         for (int i = 0; i < _msg.pose_size(); i++)
         {
             const auto &p = _msg.pose(i);
-            if (p.name() == g_model_name) {
+            const std::string &name = p.name();
+            if (name == g_model_name) {
                 drone_x = p.position().x();
                 drone_y = p.position().y();
                 drone_z = p.position().z();
                 have_drone = true;
             }
-            if (p.name() == g_target_model) {
-                tgt_x  = p.position().x();
-                tgt_y  = p.position().y();
-                tgt_z  = p.position().z();
-                tgt_qw = p.orientation().w();
-                tgt_qx = p.orientation().x();
-                tgt_qy = p.orientation().y();
-                tgt_qz = p.orientation().z();
-                have_target = true;
-                {
-                    std::lock_guard<std::mutex> lk(g_target_mutex);
-                    g_target_pose = {tgt_x, tgt_y, tgt_z,
-                                     tgt_qw, tgt_qx, tgt_qy, tgt_qz, true};
+            if (name == g_target_model) {
+                mdl_x  = p.position().x();
+                mdl_y  = p.position().y();
+                mdl_z  = p.position().z();
+                mdl_qw = p.orientation().w();
+                mdl_qx = p.orientation().x();
+                mdl_qy = p.orientation().y();
+                mdl_qz = p.orientation().z();
+                have_model = true;
+            }
+            // Flexible link matching: exact "model::link", bare "link",
+            // or any name ending with "::model::link" (world-scoped)
+            if (!link_scoped.empty()) {
+                bool lmatch = (name == link_scoped)
+                           || (name == g_target_link)
+                           || (name.size() > link_scoped.size() + 2 &&
+                               name.compare(name.size() - link_scoped.size(),
+                                            link_scoped.size(), link_scoped) == 0);
+                if (lmatch) {
+                    lnk_x  = p.position().x();
+                    lnk_y  = p.position().y();
+                    lnk_z  = p.position().z();
+                    lnk_qw = p.orientation().w();
+                    lnk_qx = p.orientation().x();
+                    lnk_qy = p.orientation().y();
+                    lnk_qz = p.orientation().z();
+                    have_link = true;
                 }
             }
+        }
+
+        // Resolve effective target world pose
+        double tgt_x, tgt_y, tgt_z;
+        double tgt_qw, tgt_qx, tgt_qy, tgt_qz;
+        bool have_target = false;
+
+        if (!link_scoped.empty()) {
+            // Multi-link model: compose model + link-relative
+            if (have_model && have_link) {
+                // pos_world = model_pos + R(model_q) * link_rel_pos
+                double rx = lnk_x * (1.0 - 2.0*(mdl_qy*mdl_qy + mdl_qz*mdl_qz))
+                          + lnk_y * (2.0*(mdl_qx*mdl_qy - mdl_qw*mdl_qz))
+                          + lnk_z * (2.0*(mdl_qx*mdl_qz + mdl_qw*mdl_qy));
+                double ry = lnk_x * (2.0*(mdl_qx*mdl_qy + mdl_qw*mdl_qz))
+                          + lnk_y * (1.0 - 2.0*(mdl_qx*mdl_qx + mdl_qz*mdl_qz))
+                          + lnk_z * (2.0*(mdl_qy*mdl_qz - mdl_qw*mdl_qx));
+                double rz = lnk_x * (2.0*(mdl_qx*mdl_qz - mdl_qw*mdl_qy))
+                          + lnk_y * (2.0*(mdl_qy*mdl_qz + mdl_qw*mdl_qx))
+                          + lnk_z * (1.0 - 2.0*(mdl_qx*mdl_qx + mdl_qy*mdl_qy));
+                tgt_x = mdl_x + rx;
+                tgt_y = mdl_y + ry;
+                tgt_z = mdl_z + rz;
+                // quat_world = model_q * link_rel_q  (Hamilton product)
+                tgt_qw = mdl_qw*lnk_qw - mdl_qx*lnk_qx - mdl_qy*lnk_qy - mdl_qz*lnk_qz;
+                tgt_qx = mdl_qw*lnk_qx + mdl_qx*lnk_qw + mdl_qy*lnk_qz - mdl_qz*lnk_qy;
+                tgt_qy = mdl_qw*lnk_qy - mdl_qx*lnk_qz + mdl_qy*lnk_qw + mdl_qz*lnk_qx;
+                tgt_qz = mdl_qw*lnk_qz + mdl_qx*lnk_qy - mdl_qy*lnk_qx + mdl_qz*lnk_qw;
+                have_target = true;
+            }
+        } else {
+            // Simple model: model pose IS the target
+            if (have_model) {
+                tgt_x = mdl_x;  tgt_y = mdl_y;  tgt_z = mdl_z;
+                tgt_qw = mdl_qw; tgt_qx = mdl_qx; tgt_qy = mdl_qy; tgt_qz = mdl_qz;
+                have_target = true;
+            }
+        }
+
+        if (have_target) {
+            std::lock_guard<std::mutex> lk(g_target_mutex);
+            g_target_pose = {tgt_x, tgt_y, tgt_z,
+                             tgt_qw, tgt_qx, tgt_qy, tgt_qz, true};
         }
 
         if (have_drone && have_target) {
@@ -1331,6 +1412,8 @@ int main(int argc, char **argv)
             g_hidden_mode = true;
         else if (strcmp(argv[i], "--target-model") == 0 && i + 1 < argc)
             g_target_model = argv[++i];
+        else if (strcmp(argv[i], "--target-link") == 0 && i + 1 < argc)
+            g_target_link = argv[++i];
         else if (strcmp(argv[i], "--target-bbox") == 0 && i + 1 < argc) {
             // Parse "X,Y,Z" half-extents
             char *bbox_str = argv[++i];
@@ -1354,6 +1437,7 @@ int main(int argc, char **argv)
             "  --hidden           With --display: create SDL2 window hidden (SHM still active)\n"
             "  --no-osd           Disable OSD overlay and OSD shared memory segment\n"
             "  --target-model N   SDF model name of the target (enables proximity detection)\n"
+            "  --target-link L    Link within the model to track (for multi-link models)\n"
             "  --target-bbox X,Y,Z  Half-extents in metres (default: 0.792,1.047,0.186)\n"
             "  --hit-box-scale S  Uniform scale for hit box (default: 1.0)\n",
             argv[0]);
@@ -1426,9 +1510,13 @@ int main(int argc, char **argv)
             if (node.Subscribe(pose_topic, onPoseV))
                 fprintf(stderr, "[gz_image_bridge] Tracking '%s' via %s for FWD speed\n",
                         g_model_name.c_str(), pose_topic.c_str());
-            if (!g_target_model.empty())
-                fprintf(stderr, "[gz_image_bridge] Target proximity: '%s' bbox=(%.3f,%.3f,%.3f) scale=%.2f\n",
-                        g_target_model.c_str(), g_target_bbox_x, g_target_bbox_y, g_target_bbox_z, g_hit_box_scale);
+            if (!g_target_model.empty()) {
+                fprintf(stderr, "[gz_image_bridge] Target proximity: '%s'%s%s bbox=(%.3f,%.3f,%.3f) scale=%.2f\n",
+                        g_target_model.c_str(),
+                        g_target_link.empty() ? "" : "::",
+                        g_target_link.c_str(),
+                        g_target_bbox_x, g_target_bbox_y, g_target_bbox_z, g_hit_box_scale);
+            }
         }
     }
 
