@@ -175,6 +175,12 @@ static std::string g_model_name;     // extracted from the image topic path
 static std::mutex  g_fwd_mutex;
 static double      g_forward_speed_ms = 0.0;
 
+// Drone world pose — updated in onPoseV for OSD bearing indicator
+static std::mutex  g_drone_mutex;
+static double      g_drone_x = 0, g_drone_y = 0, g_drone_z = 0;
+static double      g_drone_yaw = 0;   // radians, world frame
+static bool        g_drone_valid = false;
+
 struct PoseTracker {
     double x = 0, y = 0;
     double qw = 1, qx = 0, qy = 0, qz = 0;
@@ -1103,6 +1109,71 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
     drawElem(frame, fw, fh, ch_count,
              (fw - hclen * cw) / 2, fh - margin - ch, buf, scale);
 
+    // ── Top-right row 2: target bearing / distance indicator ──
+    if (!g_target_model.empty())
+    {
+        double dx, dy, dz, dyaw;
+        bool dv;
+        { std::lock_guard<std::mutex> lk(g_drone_mutex);
+          dx = g_drone_x; dy = g_drone_y; dz = g_drone_z;
+          dyaw = g_drone_yaw; dv = g_drone_valid; }
+
+        TargetPose tp;
+        { std::lock_guard<std::mutex> lk(g_target_mutex); tp = g_target_pose; }
+
+        if (dv && tp.valid) {
+            double wx = tp.x - dx;
+            double wy = tp.y - dy;
+            double wz = tp.z - dz;
+            double horiz_dist = std::sqrt(wx*wx + wy*wy);
+            double dist_3d    = std::sqrt(wx*wx + wy*wy + wz*wz);
+
+            // Absolute bearing from drone to target (world frame, degrees)
+            double abs_bearing_rad = std::atan2(wy, wx);
+            int abs_bearing_deg = static_cast<int>(
+                std::fmod(90.0 - abs_bearing_rad * 180.0 / M_PI + 360.0, 360.0));
+
+            // Relative bearing (from drone nose)
+            double rel_rad = abs_bearing_rad - dyaw;
+            // Normalise to [-pi, pi]
+            while (rel_rad >  M_PI) rel_rad -= 2.0 * M_PI;
+            while (rel_rad < -M_PI) rel_rad += 2.0 * M_PI;
+
+            // 8-direction arrow character based on relative bearing
+            // Negate: positive rel_rad = CCW (left in body) should map to '<'
+            static const char *arrows[] = {"^","\\",">","/","v","\\","<","/"};
+            int ai = (static_cast<int>(std::round(-rel_rad * 4.0 / M_PI)) + 8) % 8;
+
+            // Distance text: use km if > 1000 m
+            char dist_buf[16];
+            if (dist_3d >= 1000.0)
+                snprintf(dist_buf, sizeof(dist_buf), "%.1fK", dist_3d / 1000.0);
+            else
+                snprintf(dist_buf, sizeof(dist_buf), "%.0fm", dist_3d);
+
+            // Elevation angle
+            int elev_deg = static_cast<int>(std::atan2(wz, horiz_dist) * 180.0 / M_PI);
+
+            snprintf(buf, sizeof(buf), "TGT %s%03d %s %+d",
+                     arrows[ai], abs_bearing_deg, dist_buf, elev_deg);
+            int tlen = static_cast<int>(strlen(buf));
+            drawElem(frame, fw, fh, ch_count,
+                     fw - margin - tlen * cw, margin + ch + 2, buf, scale,
+                     0, 255, 128);  // green
+
+            // ── Pointer line from screen center toward target direction ──
+            int pcx = fw / 2;
+            int pcy = fh / 2;
+            int ptr_len = std::min(fw, fh) / 5;
+            // Screen: UP=forward, RIGHT=right; rel_rad: 0=fwd, +CCW=left
+            int px = pcx - static_cast<int>(ptr_len * std::sin(rel_rad));
+            int py = pcy - static_cast<int>(ptr_len * std::cos(rel_rad));
+            drawLineShadowed(frame, fw, fh, ch_count,
+                             pcx, pcy, px, py,
+                             std::max(2, scale), 0, 255, 128);
+        }
+    }
+
     // ── TARGET REACHED indicator (live — clears when drone leaves bbox) ──
     if (g_target_reached.load(std::memory_order_relaxed))
     {
@@ -1306,10 +1377,20 @@ static void onPoseV(const gz::msgs::Pose_V &_msg)
 
         double x  = p.position().x();
         double y  = p.position().y();
+        double z  = p.position().z();
         double qw = p.orientation().w();
         double qx = p.orientation().x();
         double qy = p.orientation().y();
         double qz = p.orientation().z();
+
+        // Store drone world pose for OSD bearing indicator
+        {
+            double yaw = std::atan2(2.0*(qw*qz + qx*qy), 1.0 - 2.0*(qy*qy + qz*qz));
+            std::lock_guard<std::mutex> lk(g_drone_mutex);
+            g_drone_x = x; g_drone_y = y; g_drone_z = z;
+            g_drone_yaw = yaw;
+            g_drone_valid = true;
+        }
 
         auto now = std::chrono::steady_clock::now();
 
