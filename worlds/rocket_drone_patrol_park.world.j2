@@ -86,7 +86,7 @@
     <include>
       <uri>{{ drone_uri }}</uri>
       <name>{{ drone_name }}</name>
-      <pose>0 0 0.3 0 0 0</pose>
+      <pose>0 0 0.3 0 0 3.14159</pose>
     </include>
 
     <include>
@@ -95,32 +95,20 @@
       <pose>-100 150 -0.77 0 0 0</pose>
     </include>
 
-    <!-- Patrol target: straight-line back-and-forth along X-axis -->
+    <!-- Patrol target: pose driven by Python via ExternalPosePlugin (UDP 9016) -->
     <model name="patrol_target_drone">
       <static>false</static>
       <pose>0 0 {{ "%.4g"|format(target_altitude) }} 0 0 0</pose>
-
-      <link name="anchor">
-        <gravity>false</gravity>
-        <inertial>
-          <mass>0.1</mass>
-          <inertia><ixx>0.0001</ixx><iyy>0.0001</iyy><izz>0.0001</izz></inertia>
-        </inertial>
-      </link>
-      <joint name="world_anchor" type="fixed">
-        <parent>world</parent>
-        <child>anchor</child>
-      </joint>
-
+      <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
+        <listen_port>9016</listen_port>
+      </plugin>
       <link name="geranium_link">
-        <pose relative_to="anchor">0 0 0 0 0 0</pose>
-        <gravity>false</gravity>
         <inertial>
           <mass>1.0</mass>
           <inertia><ixx>0.02</ixx><iyy>0.02</iyy><izz>0.04</izz></inertia>
         </inertial>
         <visual name="visual">
-          <pose>0 0 0 1.57079 0 3.14159</pose>
+          <pose>0 0 0 1.57079 0 1.5708</pose>
           <geometry>
             <mesh>
               <uri>model://shahed_drone/meshes/shahed.glb</uri>
@@ -129,7 +117,7 @@
           </geometry>
         </visual>
         <collision name="collision">
-          <pose>0 0 0 1.57079 0 3.14159</pose>
+          <pose>0 0 0 1.57079 0 1.5708</pose>
           <geometry>
             <mesh>
               <uri>model://shahed_drone/meshes/shahed.glb</uri>
@@ -156,23 +144,6 @@
           <contact><collision>collision</collision></contact>
         </sensor>
       </link>
-      <joint name="patrol_joint" type="prismatic">
-        <parent>anchor</parent>
-        <child>geranium_link</child>
-        <axis>
-          <xyz expressed_in="__model__">1 0 0</xyz>
-          <limit>
-            <lower>{{ "%.4g"|format(-patrol_length / 2) }}</lower>
-            <upper>{{ "%.4g"|format(patrol_length / 2) }}</upper>
-            <effort>1e6</effort>
-          </limit>
-        </axis>
-      </joint>
-
-      <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
-        <joint_name>patrol_joint</joint_name>
-        <initial_velocity>{{ "%.6g"|format(patrol_speed_ms) }}</initial_velocity>
-      </plugin>
     </model>
 
     <gui fullscreen="0">

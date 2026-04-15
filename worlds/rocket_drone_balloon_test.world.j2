@@ -92,7 +92,7 @@
 
     <!-- Balloon target: red sphere — position driven by stochastic wind thread -->
     <model name="balloon_target">
-      <static>true</static>
+      <static>false</static>
       <pose>{{ "%.4g"|format(target_x) }} {{ "%.4g"|format(target_y) }} {{ "%.4g"|format(target_z) }} 0 0 0</pose>
       <link name="balloon_link">
         <collision name="collision">

@@ -4,8 +4,7 @@
   Gazebo renders only — physics engine present for WorldPoseCmd.
   Drone pose is driven externally via ExternalPosePlugin (UDP 9010).
   Rotor spinning driven by RotorVisualPlugin (UDP 9012).
-  Target: red balloon at (target_x, target_y, target_z) — position driven
-  by stochastic wind from start.py via set_pose service.
+  Target: red balloon — position driven by ExternalPosePlugin (UDP 9014).
 -->
 <sdf version="1.9">
   <world name="balloon_test">
@@ -80,10 +79,13 @@
       <pose>0 0 0 0 0 0</pose>
     </include>
 
-    <!-- Balloon target: red sphere — position driven by stochastic wind thread -->
+    <!-- Balloon target: red sphere — pose driven via ExternalPosePlugin UDP 9014 -->
     <model name="balloon_target">
-      <static>true</static>
+      <static>false</static>
       <pose>{{ "%.4g"|format(target_x) }} {{ "%.4g"|format(target_y) }} {{ "%.4g"|format(target_z) }} 0 0 0</pose>
+      <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
+        <listen_port>9014</listen_port>
+      </plugin>
       <link name="balloon_link">
         <visual name="visual">
           <geometry>
