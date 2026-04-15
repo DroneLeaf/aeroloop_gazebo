@@ -53,12 +53,28 @@
       <direction>-0.5 0.1 -0.9</direction>
     </light>
 
-    <!-- Terrain reference near spawn point -->
+    <!-- Original baylands terrain (unchanged position) -->
     <include>
       <uri>model://baylands_terrain</uri>
       <name>baylands_terrain</name>
       <pose>-100 150 -0.77 0 0 0</pose>
     </include>
+    <!-- 5×5 tiled duplicates (~958m × 628m per tile) centred on original -->
+    {%- set tile_cx = -100 %}
+    {%- set tile_cy = 150 %}
+    {%- set tile_dx = 958 %}
+    {%- set tile_dy = 628 %}
+    {%- for ix in range(-2, 3) %}
+    {%- for iy in range(-2, 3) %}
+    {%- if ix != 0 or iy != 0 %}
+    <include>
+      <uri>model://baylands_terrain</uri>
+      <name>baylands_terrain_{{ ix + 2 }}_{{ iy + 2 }}</name>
+      <pose>{{ tile_cx + ix * tile_dx }} {{ tile_cy + iy * tile_dy }} -0.77 0 0 0</pose>
+    </include>
+    {%- endif %}
+    {%- endfor %}
+    {%- endfor %}
 
     <!-- Large ground plane for extended patrol area -->
     <model name="desert_plane">
