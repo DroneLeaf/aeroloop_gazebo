@@ -1,15 +1,7 @@
 <?xml version="1.0" ?>
-<!--
-  Visualization-only world for rocket_drone collision test with Simulink dynamics backend.
-  Gazebo renders only — physics engine present for WorldPoseCmd + JointVelocityCmd.
-  Drone pose is driven externally via ExternalPosePlugin (UDP 9010).
-  Rotor spinning driven by RotorVisualPlugin (UDP 9012).
-  Target: static geranium at (20, 0, 20) — patchable via start.py --target-altitude / --target-distance.
--->
 <sdf version="1.9">
-  <world name="collision_test">
-    <gravity>0 0 0</gravity>
-    <physics name="realtime" type="ode">
+  <world name="balloon_test">
+    <physics name="realtime" type="ignored">
       <max_step_size>0.004</max_step_size>
       <real_time_factor>1.0</real_time_factor>
     </physics>
@@ -22,6 +14,10 @@
     <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands">
     </plugin>
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu">
+    </plugin>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact">
     </plugin>
 
     <scene>
@@ -52,10 +48,25 @@
       <direction>-0.5 0.1 -0.9</direction>
     </light>
 
-    <!-- Ground plane (visual only, no collision needed) -->
     <model name="grass_plane">
       <static>true</static>
       <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>1000 1000</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>100</mu>
+                <mu2>50</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
         <visual name="visual">
           <cast_shadows>false</cast_shadows>
           <geometry>
@@ -72,19 +83,44 @@
       </link>
     </model>
 
-    <!-- Drone — visualization-only (included from vis model, no physics) -->
+    <!-- Drone with full physics -->
     <include>
-      <uri>{{ drone_vis_uri }}</uri>
+      <uri>{{ drone_uri }}</uri>
       <name>{{ drone_name }}</name>
-      <pose>0 0 0 0 0 0</pose>
+      <pose>0 0 0.3 0 0 0</pose>
     </include>
 
-    <!-- Collision test target: Shahed drone, 90° CW from default heading -->
-    <include>
-      <uri>model://shahed_drone</uri>
-      <name>collision_test_target</name>
-      <pose>{{ "%.4g"|format(target_x) }} {{ "%.4g"|format(target_y) }} {{ "%.4g"|format(target_z) }} 0 0 -1.5708</pose>
-    </include>
+    <!-- Balloon target: red sphere — position driven by stochastic wind thread -->
+    <model name="balloon_target">
+      <static>true</static>
+      <pose>{{ "%.4g"|format(target_x) }} {{ "%.4g"|format(target_y) }} {{ "%.4g"|format(target_z) }} 0 0 0</pose>
+      <link name="balloon_link">
+        <collision name="collision">
+          <geometry>
+            <sphere>
+              <radius>0.5</radius>
+            </sphere>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <sphere>
+              <radius>0.5</radius>
+            </sphere>
+          </geometry>
+          <material>
+            <ambient>0.9 0.1 0.1 1</ambient>
+            <diffuse>0.9 0.1 0.1 1</diffuse>
+            <specular>0.6 0.2 0.2 1</specular>
+          </material>
+        </visual>
+        <sensor name="contact_sensor" type="contact">
+          <contact>
+            <collision>collision</collision>
+          </contact>
+        </sensor>
+      </link>
+    </model>
 
     <gui fullscreen="0">
       <camera name="user_camera">
