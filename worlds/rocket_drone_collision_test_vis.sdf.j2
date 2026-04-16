@@ -81,7 +81,7 @@
 
     <!-- Collision test target: Shahed drone, 90° CW from default heading -->
     <include>
-      <uri>model://shahed_drone</uri>
+      <uri>{{ target_mesh_uri }}</uri>
       <name>collision_test_target</name>
       <pose>{{ "%.4g"|format(target_x) }} {{ "%.4g"|format(target_y) }} {{ "%.4g"|format(target_z) }} 0 0 -1.5708</pose>
     </include>
