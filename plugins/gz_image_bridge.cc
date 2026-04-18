@@ -80,6 +80,10 @@ static const char *g_pix_fmt = "rgb24";
 static bool g_osd_enabled = true;   // OSD always enabled
 static int  g_msp_port    = 5763;   // UART3 by default (5760 + uart_number)
 
+// MAVLink OSD mode (PX4 stack)
+static bool g_mavlink_osd  = false;  // --mavlink-osd: use MAVLink UDP instead of MSP TCP
+static int  g_mavlink_port = 14560;  // dedicated OSD telemetry port
+
 // Camera pitch (degrees) — used for crosshair Z-axis projection.
 static double g_cam_pitch_deg = -80.0;
 
@@ -610,6 +614,9 @@ struct OsdTelemetry
     uint32_t flight_mode_flags = 0;
     bool     armed = false;
 
+    // Direct throttle percentage (used by MAVLink OSD, VFR_HUD)
+    int      throttle_pct = 0;
+
     // MSP_RAW_GPS
     bool     gps_fix       = false;
     uint8_t  gps_sats      = 0;
@@ -775,6 +782,140 @@ static void mspThread()
         if (g_running)
             std::this_thread::sleep_for(std::chrono::seconds(2));
     }
+}
+
+// ─── MAVLink UDP OSD thread (PX4 stack) ──────────────────────────────────────
+// Listens for MAVLink v1/v2 UDP datagrams from PX4 SITL and populates
+// the same OsdTelemetry struct used by the MSP path.
+// Messages parsed: HEARTBEAT (0), ATTITUDE (30), VFR_HUD (74).
+
+static void mavlinkThread()
+{
+    int sock = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) { perror("[MAVLink] socket"); return; }
+
+    int one = 1;
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+
+    struct sockaddr_in addr{};
+    addr.sin_family      = AF_INET;
+    addr.sin_port        = htons(static_cast<uint16_t>(g_mavlink_port));
+    addr.sin_addr.s_addr = INADDR_ANY;
+
+    if (::bind(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+        perror("[MAVLink] bind");
+        ::close(sock);
+        return;
+    }
+
+    fprintf(stderr, "[OSD] MAVLink UDP listener on port %d\n", g_mavlink_port);
+
+    // Track arm-start time locally
+    auto arm_start = std::chrono::steady_clock::now();
+    int  flight_time_s = 0;
+    bool was_armed = false;
+
+    uint8_t buf[300];
+    while (g_running)
+    {
+        struct pollfd pfd = { sock, POLLIN, 0 };
+        if (::poll(&pfd, 1, 500) <= 0) continue;
+
+        ssize_t n = ::recvfrom(sock, buf, sizeof(buf), 0, nullptr, nullptr);
+        if (n < 8) continue;
+
+        uint32_t msg_id;
+        const uint8_t *payload;
+        int payload_len;
+
+        if (buf[0] == 0xFE) {
+            // MAVLink v1: STX(1) LEN(1) SEQ(1) SYS(1) COMP(1) MSG(1) PAYLOAD(LEN) CRC(2)
+            payload_len = buf[1];
+            msg_id      = buf[5];
+            payload     = buf + 6;
+            if (n < 6 + payload_len + 2) continue;
+        } else if (buf[0] == 0xFD) {
+            // MAVLink v2: STX(1) LEN(1) INC(1) CMP(1) SEQ(1) SYS(1) COMP(1) MSG(3) PAYLOAD(LEN) CRC(2)
+            payload_len = buf[1];
+            msg_id      = buf[7] | (static_cast<uint32_t>(buf[8]) << 8)
+                                 | (static_cast<uint32_t>(buf[9]) << 16);
+            payload     = buf + 10;
+            if (n < 10 + payload_len + 2) continue;
+        } else {
+            continue;
+        }
+
+        {
+            std::lock_guard<std::mutex> lk(g_telem_mutex);
+            g_telem.connected = true;
+
+            switch (msg_id)
+            {
+            case 0:  // HEARTBEAT
+                // Wire: custom_mode(4) type(1) autopilot(1) base_mode(1) system_status(1) mavlink_version(1)
+                // MAVLink v2 may truncate trailing zeros — zero-fill.
+                {
+                    uint8_t hb[9] = {};
+                    std::memcpy(hb, payload, std::min(payload_len, 9));
+                    uint8_t base_mode = hb[6];
+                    bool now_armed = (base_mode & 0x80) != 0;  // MAV_MODE_FLAG_SAFETY_ARMED
+                    if (now_armed && !was_armed)
+                        arm_start = std::chrono::steady_clock::now();
+                    if (now_armed)
+                        flight_time_s = static_cast<int>(
+                            std::chrono::duration_cast<std::chrono::seconds>(
+                                std::chrono::steady_clock::now() - arm_start).count());
+                    was_armed = now_armed;
+                    g_telem.armed = now_armed;
+                    g_telem.flight_time_s = flight_time_s;
+                }
+                break;
+
+            case 30: // ATTITUDE
+                // Wire: time_boot_ms(4) roll(4) pitch(4) yaw(4) rollspeed(4) pitchspeed(4) yawspeed(4)
+                // MAVLink v2 may truncate trailing zeros — zero-fill.
+                {
+                    uint8_t att[28] = {};
+                    std::memcpy(att, payload, std::min(payload_len, 28));
+                    float roll, pitch, yaw;
+                    std::memcpy(&roll,  att + 4,  4);
+                    std::memcpy(&pitch, att + 8,  4);
+                    std::memcpy(&yaw,   att + 12, 4);
+                    g_telem.roll_deg  = roll  * 180.0f / static_cast<float>(M_PI);
+                    g_telem.pitch_deg = pitch * 180.0f / static_cast<float>(M_PI);
+                    // Derive heading from yaw (NED, radians → 0-359°)
+                    double yaw_deg = std::fmod(yaw * 180.0 / M_PI + 360.0, 360.0);
+                    g_telem.heading = static_cast<int16_t>(yaw_deg);
+                }
+                break;
+
+            case 74: // VFR_HUD
+                // Wire: airspeed(4) groundspeed(4) alt(4) climb(4) heading(2) throttle(2)
+                // MAVLink v2 truncates trailing zero bytes — zero-fill missing fields.
+                {
+                    uint8_t vfr[20] = {};
+                    std::memcpy(vfr, payload, std::min(payload_len, 20));
+                    float alt, climb;
+                    int16_t heading;
+                    uint16_t throttle;
+                    std::memcpy(&alt,      vfr + 8,  4);
+                    std::memcpy(&climb,    vfr + 12, 4);
+                    std::memcpy(&heading,  vfr + 16, 2);
+                    std::memcpy(&throttle, vfr + 18, 2);
+                    g_telem.altitude_m   = alt;
+                    g_telem.vario_ms     = climb;
+                    g_telem.heading      = heading;
+                    g_telem.throttle_pct = static_cast<int>(std::min<uint16_t>(throttle, 100));
+                }
+                break;
+
+            default:
+                break;
+            }
+        } // release g_telem_mutex before any I/O
+    }
+
+    ::close(sock);
 }
 
 // ─── OSD Rendering ───────────────────────────────────────────────────────────
@@ -1190,6 +1331,185 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
     }
 }
 
+// ─── PX4 MAVLink OSD Rendering ──────────────────────────────────────────────
+// Simplified OSD for PX4 stack: altitude, heading, roll, yaw, throttle %,
+// artificial horizon, armed/disarmed, forward speed, vertical speed.
+// No battery, RSSI, flight-mode flags, guidance mode, or lock indicators.
+
+static void renderPx4Osd(uint8_t *frame, int fw, int fh, int ch_count)
+{
+    OsdTelemetry t;
+    {
+        std::lock_guard<std::mutex> lk(g_telem_mutex);
+        t = g_telem;
+    }
+
+    int scale;
+    if      (fw >= 1280) scale = 2;
+    else if (fw >=  640) scale = 2;
+    else                 scale = 1;
+
+    int cw     = 8 * scale;
+    int ch     = 8 * scale;
+    int margin = 8 * scale;
+    char buf[64];
+
+    if (!t.connected)
+    {
+        const char *msg = "NO TELEMETRY";
+        int x = (fw - static_cast<int>(strlen(msg)) * cw) / 2;
+        drawElem(frame, fw, fh, ch_count, x, ch, msg, scale, 255, 80, 80);
+        return;
+    }
+
+    // ── Artificial horizon ──
+    drawHorizon(frame, fw, fh, ch_count, t.roll_deg, t.pitch_deg, scale);
+
+    // ── Top-left: roll ──
+    snprintf(buf, sizeof(buf), "R:%+.1f", static_cast<double>(t.roll_deg));
+    drawElem(frame, fw, fh, ch_count, margin, margin, buf, scale);
+
+    // ── Top-left row 2: pitch ──
+    snprintf(buf, sizeof(buf), "P:%+.1f", static_cast<double>(t.pitch_deg));
+    drawElem(frame, fw, fh, ch_count, margin, margin + ch + 2, buf, scale);
+
+    // ── Top-right: throttle ──
+    snprintf(buf, sizeof(buf), "THR:%d%%", t.throttle_pct);
+    int tlen = static_cast<int>(strlen(buf));
+    drawElem(frame, fw, fh, ch_count,
+             fw - margin - tlen * cw, margin, buf, scale);
+
+    // ── Top-right row 2: timer ──
+    int secs = t.flight_time_s;
+    snprintf(buf, sizeof(buf), "%02d:%02d", secs / 60, secs % 60);
+    int tmlen = static_cast<int>(strlen(buf));
+    drawElem(frame, fw, fh, ch_count,
+             fw - margin - tmlen * cw, margin + ch + 2, buf, scale);
+
+    // ── Top-center: armed / disarmed ──
+    const char *arm_str = t.armed ? "ARMED" : "DISARMED";
+    int alen = static_cast<int>(strlen(arm_str));
+    int ax = (fw - alen * cw) / 2;
+    if (t.armed)
+        drawElem(frame, fw, fh, ch_count, ax, margin, arm_str, scale, 80, 255, 80);
+    else
+        drawElem(frame, fw, fh, ch_count, ax, margin, arm_str, scale, 255, 200, 50);
+
+    // ── Center: crosshair at projected body Z-up axis ──
+    {
+        double camPitchRad = g_cam_pitch_deg * M_PI / 180.0;
+        constexpr double kHfovRad = 2.0;
+        double offAngle = M_PI / 2.0 + camPitchRad;
+        double halfVfov = std::atan(std::tan(kHfovRad / 2.0) * fh / (double)fw);
+        int dy = static_cast<int>(std::tan(offAngle) / std::tan(halfVfov) * (fh / 2.0));
+        int crossX = (fw - cw) / 2;
+        int crossY = (fh - ch) / 2 - dy;
+        drawOsdStr(frame, fw, fh, ch_count, crossX, crossY, "+", scale);
+    }
+
+    // ── Bottom-left: forward ground speed (from Gazebo pose) ──
+    {
+        double fwd;
+        { std::lock_guard<std::mutex> lk(g_fwd_mutex); fwd = g_forward_speed_ms; }
+        snprintf(buf, sizeof(buf), "FWD:%+.1fm/s", fwd);
+        drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch * 3 - 4, buf, scale);
+    }
+
+    // ── Bottom-left row 2: altitude ──
+    snprintf(buf, sizeof(buf), "ALT:%.1fm", static_cast<double>(t.altitude_m));
+    drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch * 2 - 2, buf, scale);
+
+    // ── Bottom-left row 3: vertical speed ──
+    snprintf(buf, sizeof(buf), "VS:%+.1fm/s", static_cast<double>(t.vario_ms));
+    drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch, buf, scale);
+
+    // ── Bottom-right: heading ──
+    {
+        static const char *dirs[] = {"N","NE","E","SE","S","SW","W","NW"};
+        int di = ((t.heading % 360 + 360 + 22) % 360) / 45;
+        snprintf(buf, sizeof(buf), "%s %d", dirs[di], t.heading);
+        int hlen = static_cast<int>(strlen(buf));
+        drawElem(frame, fw, fh, ch_count,
+                 fw - margin - hlen * cw, fh - margin - ch * 2 - 2, buf, scale);
+    }
+
+    // ── Bottom-center: heading compass bar ──
+    snprintf(buf, sizeof(buf), "HDG:%d", static_cast<int>(t.heading));
+    int hclen = static_cast<int>(strlen(buf));
+    drawElem(frame, fw, fh, ch_count,
+             (fw - hclen * cw) / 2, fh - margin - ch, buf, scale);
+
+    // ── Target bearing / distance ──
+    if (!g_target_model.empty())
+    {
+        double dx, dy, dz, dyaw;
+        bool dv;
+        { std::lock_guard<std::mutex> lk(g_drone_mutex);
+          dx = g_drone_x; dy = g_drone_y; dz = g_drone_z;
+          dyaw = g_drone_yaw; dv = g_drone_valid; }
+
+        TargetPose tp;
+        { std::lock_guard<std::mutex> lk(g_target_mutex); tp = g_target_pose; }
+
+        if (dv && tp.valid) {
+            double wx = tp.x - dx;
+            double wy = tp.y - dy;
+            double wz = tp.z - dz;
+            double horiz_dist = std::sqrt(wx*wx + wy*wy);
+            double dist_3d    = std::sqrt(wx*wx + wy*wy + wz*wz);
+
+            double abs_bearing_rad = std::atan2(wy, wx);
+            int abs_bearing_deg = static_cast<int>(
+                std::fmod(90.0 - abs_bearing_rad * 180.0 / M_PI + 360.0, 360.0));
+
+            double rel_rad = abs_bearing_rad - dyaw;
+            while (rel_rad >  M_PI) rel_rad -= 2.0 * M_PI;
+            while (rel_rad < -M_PI) rel_rad += 2.0 * M_PI;
+
+            static const char *arrows[] = {"^","\\",">","/","v","\\","<","/"};
+            int ai = (static_cast<int>(std::round(-rel_rad * 4.0 / M_PI)) + 8) % 8;
+
+            char dist_buf[16];
+            if (dist_3d >= 1000.0)
+                snprintf(dist_buf, sizeof(dist_buf), "%.1fK", dist_3d / 1000.0);
+            else
+                snprintf(dist_buf, sizeof(dist_buf), "%.0fm", dist_3d);
+
+            int elev_deg = static_cast<int>(std::atan2(wz, horiz_dist) * 180.0 / M_PI);
+
+            snprintf(buf, sizeof(buf), "TGT %s%03d %s %+d",
+                     arrows[ai], abs_bearing_deg, dist_buf, elev_deg);
+            int tlen2 = static_cast<int>(strlen(buf));
+            drawElem(frame, fw, fh, ch_count,
+                     fw - margin - tlen2 * cw, margin + (ch + 2) * 2, buf, scale,
+                     0, 255, 128);
+
+            int pcx = fw / 2;
+            int pcy = fh / 2;
+            int ptr_len = std::min(fw, fh) / 5;
+            int px = pcx - static_cast<int>(ptr_len * std::sin(rel_rad));
+            int py = pcy - static_cast<int>(ptr_len * std::cos(rel_rad));
+            drawLineShadowed(frame, fw, fh, ch_count,
+                             pcx, pcy, px, py,
+                             std::max(2, scale), 0, 255, 128);
+        }
+    }
+
+    // ── TARGET REACHED indicator ──
+    if (g_target_reached.load(std::memory_order_relaxed))
+    {
+        const char *hit_msg = "TARGET REACHED";
+        int hit_len = static_cast<int>(strlen(hit_msg));
+        int hit_x = (fw - hit_len * cw) / 2;
+        int hit_y = fh / 2 + ch * 3;
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        bool flash = ((ms / 500) % 2) == 0;
+        uint8_t hr = 255, hg = flash ? 50u : 220u, hb = flash ? 50u : 0u;
+        drawElem(frame, fw, fh, ch_count, hit_x, hit_y, hit_msg, scale, hr, hg, hb);
+    }
+}
+
 // ─── Gazebo pose callback (for forward ground speed) ─────────────────────────
 
 static void onPoseV(const gz::msgs::Pose_V &_msg)
@@ -1481,6 +1801,13 @@ int main(int argc, char **argv)
             ;  // accepted for backward compat, OSD is on by default
         else if (strcmp(argv[i], "--no-osd") == 0)
             g_osd_enabled = false;
+        else if (strcmp(argv[i], "--mavlink-osd") == 0)
+        {
+            g_mavlink_osd  = true;
+            g_osd_enabled  = true;  // override --no-osd if both given
+        }
+        else if (strcmp(argv[i], "--mavlink-port") == 0 && i + 1 < argc)
+            g_mavlink_port = atoi(argv[++i]);
         else if (strcmp(argv[i], "--msp-port") == 0 && i + 1 < argc)
             g_msp_port = atoi(argv[++i]);
         else if (strcmp(argv[i], "--stream") == 0 && i + 1 < argc)
@@ -1512,6 +1839,8 @@ int main(int argc, char **argv)
         fprintf(stderr,
             "Usage: %s <image_topic> [--msp-port PORT]\n"
             "  --msp-port N       MSP TCP port (default: 5763 = UART3)\n"
+            "  --mavlink-osd      Use MAVLink UDP telemetry (PX4 stack) instead of MSP\n"
+            "  --mavlink-port N   MAVLink UDP port (default: 14550)\n"
             "  --stream H:P       Stream raw (no OSD) H.264 over UDP to host:port\n"
             "  --cam-pitch DEG    Camera pitch in degrees (default: -80)\n"
             "  --display          Render in SDL2 window (zero-latency, no stdout)\n"
@@ -1528,11 +1857,16 @@ int main(int argc, char **argv)
     std::signal(SIGINT, sigHandler);
     std::signal(SIGTERM, sigHandler);
 
-    // Start MSP telemetry thread (only when OSD is enabled)
+    // Start telemetry thread (MSP for Betaflight, MAVLink UDP for PX4)
     std::thread osd_thread;
     if (g_osd_enabled) {
-        fprintf(stderr, "[gz_image_bridge] OSD enabled — MSP port %d\n", g_msp_port);
-        osd_thread = std::thread(mspThread);
+        if (g_mavlink_osd) {
+            fprintf(stderr, "[gz_image_bridge] MAVLink OSD enabled — UDP port %d\n", g_mavlink_port);
+            osd_thread = std::thread(mavlinkThread);
+        } else {
+            fprintf(stderr, "[gz_image_bridge] OSD enabled — MSP port %d\n", g_msp_port);
+            osd_thread = std::thread(mspThread);
+        }
     } else {
         fprintf(stderr, "[gz_image_bridge] OSD disabled\n");
     }
@@ -1680,8 +2014,12 @@ int main(int argc, char **argv)
         if (g_osd_enabled && meta_printed)
         {
             uint8_t *pixels = reinterpret_cast<uint8_t*>(frame.data());
-            renderOsd(pixels, static_cast<int>(g_width),
-                      static_cast<int>(g_height), ch_count);
+            if (g_mavlink_osd)
+                renderPx4Osd(pixels, static_cast<int>(g_width),
+                             static_cast<int>(g_height), ch_count);
+            else
+                renderOsd(pixels, static_cast<int>(g_width),
+                          static_cast<int>(g_height), ch_count);
             // OSD SHM — post-OSD frame for display consumers
             shmSegmentWrite(g_shm_osd, frame);
         }
