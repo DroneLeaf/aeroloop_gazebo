@@ -1226,13 +1226,52 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
         drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch * 3 - 4, buf, scale);
     }
 
-    // ── Bottom-left row 2: altitude ──
-    snprintf(buf, sizeof(buf), "ALT:%.1fm", static_cast<double>(t.altitude_m));
-    drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch * 2 - 2, buf, scale);
+    // ── Bottom-left row 2: altitude with climb/descent arrow ──
+    {
+        float vz = t.vario_ms;
+        char arrow = (vz > 0.3f) ? '^' : (vz < -0.3f) ? 'v' : '-';
+        snprintf(buf, sizeof(buf), "ALT:%.0fm%c", static_cast<double>(t.altitude_m), arrow);
+        uint8_t ar = 255, ag = 255, ab = 255;
+        if      (vz >  0.3f) { ar =  80; ag = 255; ab =  80; }  // green = climbing
+        else if (vz < -0.3f) { ar = 255; ag =  80; ab =  80; }  // red   = descending
+        drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch * 2 - 2, buf, scale, ar, ag, ab);
+    }
 
     // ── Bottom-left row 3: vertical speed ──
     snprintf(buf, sizeof(buf), "VS:%+.1fm/s", static_cast<double>(t.vario_ms));
     drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch, buf, scale);
+
+    // ── Right-center: variometer bar (5 segs each side of zero) ──
+    {
+        constexpr int N_SEGS    = 5;
+        constexpr float VZ_SCALE = 1.0f;   // 1 segment per 1 m/s
+        float vz    = t.vario_ms;
+        int   filled = std::min(N_SEGS, static_cast<int>(std::round(std::abs(vz) / VZ_SCALE)));
+        bool  climb  = (vz >  0.15f);
+        bool  sink   = (vz < -0.15f);
+        int   bx     = fw - margin - cw;   // rightmost column
+        // Vertically centred: segment 0 = zero-line (middle of bar)
+        // seg index from top: 0 = top climb segment, N_SEGS = zero, 2*N_SEGS = bottom sink
+        int bar_top_y = fh / 2 - N_SEGS * (ch + 2);
+        // Label above bar
+        drawOsdStr(frame, fw, fh, ch_count, bx, bar_top_y - ch - 2, "VZ", scale, 180, 180, 180);
+        for (int row = 0; row <= 2 * N_SEGS; row++) {
+            int seg_y   = bar_top_y + row * (ch + 2);
+            int seg_idx = N_SEGS - row;   // +N_SEGS at top, 0 at centre, -N_SEGS at bottom
+            if (seg_idx == 0) {
+                // Centre / zero marker — always drawn
+                drawOsdStr(frame, fw, fh, ch_count, bx, seg_y, "-", scale, 255, 200, 50);
+            } else if (seg_idx > 0) {
+                // Climb side (above zero)
+                if (climb && seg_idx <= filled)
+                    drawOsdStr(frame, fw, fh, ch_count, bx, seg_y, "|", scale, 80, 255, 80);
+            } else {
+                // Sink side (below zero)
+                if (sink && (-seg_idx) <= filled)
+                    drawOsdStr(frame, fw, fh, ch_count, bx, seg_y, "|", scale, 255, 80, 80);
+            }
+        }
+    }
 
     // ── Bottom-right: heading ──
     {
@@ -1415,13 +1454,46 @@ static void renderPx4Osd(uint8_t *frame, int fw, int fh, int ch_count)
         drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch * 3 - 4, buf, scale);
     }
 
-    // ── Bottom-left row 2: altitude ──
-    snprintf(buf, sizeof(buf), "ALT:%.1fm", static_cast<double>(t.altitude_m));
-    drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch * 2 - 2, buf, scale);
+    // ── Bottom-left row 2: altitude with climb/descent arrow ──
+    {
+        float vz = t.vario_ms;
+        char arrow = (vz > 0.3f) ? '^' : (vz < -0.3f) ? 'v' : '-';
+        snprintf(buf, sizeof(buf), "ALT:%.0fm%c", static_cast<double>(t.altitude_m), arrow);
+        uint8_t ar = 255, ag = 255, ab = 255;
+        if      (vz >  0.3f) { ar =  80; ag = 255; ab =  80; }  // green = climbing
+        else if (vz < -0.3f) { ar = 255; ag =  80; ab =  80; }  // red   = descending
+        drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch * 2 - 2, buf, scale, ar, ag, ab);
+    }
 
     // ── Bottom-left row 3: vertical speed ──
     snprintf(buf, sizeof(buf), "VS:%+.1fm/s", static_cast<double>(t.vario_ms));
     drawElem(frame, fw, fh, ch_count, margin, fh - margin - ch, buf, scale);
+
+    // ── Right-center: variometer bar (5 segs each side of zero) ──
+    {
+        constexpr int N_SEGS    = 5;
+        constexpr float VZ_SCALE = 1.0f;   // 1 segment per 1 m/s
+        float vz    = t.vario_ms;
+        int   filled = std::min(N_SEGS, static_cast<int>(std::round(std::abs(vz) / VZ_SCALE)));
+        bool  climb  = (vz >  0.15f);
+        bool  sink   = (vz < -0.15f);
+        int   bx     = fw - margin - cw;   // rightmost column
+        int bar_top_y = fh / 2 - N_SEGS * (ch + 2);
+        drawOsdStr(frame, fw, fh, ch_count, bx, bar_top_y - ch - 2, "VZ", scale, 180, 180, 180);
+        for (int row = 0; row <= 2 * N_SEGS; row++) {
+            int seg_y   = bar_top_y + row * (ch + 2);
+            int seg_idx = N_SEGS - row;
+            if (seg_idx == 0) {
+                drawOsdStr(frame, fw, fh, ch_count, bx, seg_y, "-", scale, 255, 200, 50);
+            } else if (seg_idx > 0) {
+                if (climb && seg_idx <= filled)
+                    drawOsdStr(frame, fw, fh, ch_count, bx, seg_y, "|", scale, 80, 255, 80);
+            } else {
+                if (sink && (-seg_idx) <= filled)
+                    drawOsdStr(frame, fw, fh, ch_count, bx, seg_y, "|", scale, 255, 80, 80);
+            }
+        }
+    }
 
     // ── Bottom-right: heading ──
     {
