@@ -115,7 +115,7 @@
         <camera>
           <horizontal_fov>{{ "%.10g"|format(fpv_hfov_rad) }}</horizontal_fov>
           <image>
-            <width>640</width>
+            <width>{{ fpv_img_width }}</width>
             <height>{{ fpv_img_height }}</height>
           </image>
           <clip>
@@ -134,7 +134,7 @@
         <camera>
           <horizontal_fov>{{ "%.10g"|format(tracker_hfov_rad) }}</horizontal_fov>
           <image>
-            <width>640</width>
+            <width>{{ tracker_img_width }}</width>
             <height>{{ tracker_img_height }}</height>
           </image>
           <clip>

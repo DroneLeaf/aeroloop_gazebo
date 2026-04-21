@@ -75,6 +75,8 @@ static std::atomic<bool> g_meta_ready{false};
 static uint32_t g_width = 0;
 static uint32_t g_height = 0;
 static const char *g_pix_fmt = "rgb24";
+static uint32_t g_out_width = 640;
+static uint32_t g_out_height = 480;
 
 // OSD configuration
 static bool g_osd_enabled = true;   // OSD always enabled
@@ -384,6 +386,40 @@ static void streamWriteFrame(int fd, const std::string &frame)
             return;
         }
     }
+}
+
+// Stretch/copy source frame to a fixed output resolution using nearest-neighbor
+// sampling. This intentionally allows non-square-pixel display behavior when
+// source aspect ratio differs from output (e.g. 640x286 -> 640x480).
+static std::string stretchFrameNearest(const std::string &src,
+                                       uint32_t src_w, uint32_t src_h,
+                                       uint32_t dst_w, uint32_t dst_h,
+                                       int ch_count)
+{
+    const size_t src_expected = static_cast<size_t>(src_w) * src_h * ch_count;
+    if (src.size() < src_expected || src_w == 0 || src_h == 0 || ch_count <= 0)
+        return src;
+    if (src_w == dst_w && src_h == dst_h)
+        return src;
+
+    std::string dst;
+    dst.resize(static_cast<size_t>(dst_w) * dst_h * ch_count);
+
+    const uint8_t *s = reinterpret_cast<const uint8_t *>(src.data());
+    uint8_t *d = reinterpret_cast<uint8_t *>(&dst[0]);
+
+    for (uint32_t y = 0; y < dst_h; y++) {
+        uint32_t sy = static_cast<uint32_t>((static_cast<uint64_t>(y) * src_h) / dst_h);
+        if (sy >= src_h) sy = src_h - 1;
+        for (uint32_t x = 0; x < dst_w; x++) {
+            uint32_t sx = static_cast<uint32_t>((static_cast<uint64_t>(x) * src_w) / dst_w);
+            if (sx >= src_w) sx = src_w - 1;
+            const size_t so = (static_cast<size_t>(sy) * src_w + sx) * ch_count;
+            const size_t doff = (static_cast<size_t>(y) * dst_w + x) * ch_count;
+            std::memcpy(d + doff, s + so, ch_count);
+        }
+    }
+    return dst;
 }
 
 // ─── Non-blocking stream writer thread ───────────────────────────────────────
@@ -1886,6 +1922,10 @@ int main(int argc, char **argv)
             g_stream_dest = argv[++i];
         else if (strcmp(argv[i], "--cam-pitch") == 0 && i + 1 < argc)
             g_cam_pitch_deg = atof(argv[++i]);
+        else if (strcmp(argv[i], "--out-width") == 0 && i + 1 < argc)
+            g_out_width = static_cast<uint32_t>(std::max(64, atoi(argv[++i])));
+        else if (strcmp(argv[i], "--out-height") == 0 && i + 1 < argc)
+            g_out_height = static_cast<uint32_t>(std::max(64, atoi(argv[++i])));
         else if (strcmp(argv[i], "--display") == 0)
             g_display_mode = true;
         else if (strcmp(argv[i], "--hidden") == 0)
@@ -1915,6 +1955,8 @@ int main(int argc, char **argv)
             "  --mavlink-port N   MAVLink UDP port (default: 14550)\n"
             "  --stream H:P       Stream raw (no OSD) H.264 over UDP to host:port\n"
             "  --cam-pitch DEG    Camera pitch in degrees (default: -80)\n"
+            "  --out-width PX     Output frame width after stretch (default: 640)\n"
+            "  --out-height PX    Output frame height after stretch (default: 480)\n"
             "  --display          Render in SDL2 window (zero-latency, no stdout)\n"
             "  --hidden           With --display: create SDL2 window hidden (SHM still active)\n"
             "  --no-osd           Disable OSD overlay and OSD shared memory segment\n"
@@ -2029,7 +2071,7 @@ int main(int argc, char **argv)
 
         if (!meta_printed && g_meta_ready.load(std::memory_order_acquire))
         {
-            fprintf(stderr, "IMGMETA %u %u %s\n", g_width, g_height, g_pix_fmt);
+            fprintf(stderr, "IMGMETA %u %u %s\n", g_out_width, g_out_height, g_pix_fmt);
             fflush(stderr);
             meta_printed = true;
 
@@ -2041,13 +2083,13 @@ int main(int argc, char **argv)
 
             // Spawn ffmpeg stream child now that we know resolution
             if (!g_stream_dest.empty())
-                g_stream_fd = spawnStreamFfmpeg(g_width, g_height, g_pix_fmt,
+                g_stream_fd = spawnStreamFfmpeg(g_out_width, g_out_height, g_pix_fmt,
                                                g_stream_dest, g_stream_pid);
 
 #ifdef HAS_SDL2
             // Initialize SDL2 display once we know the frame dimensions
             if (g_display_mode) {
-                if (!initDisplay(g_width, g_height, g_pix_fmt)) {
+                if (!initDisplay(g_out_width, g_out_height, g_pix_fmt)) {
                     fprintf(stderr, "[display] Failed to init — falling back to stdout\n");
                     g_display_mode = false;
                 }
@@ -2058,14 +2100,25 @@ int main(int argc, char **argv)
             {
                 std::string base = shmNameFromTopic(topic);
                 g_shm_clean.name = base;
-                if (!initShmSegment(g_shm_clean, g_width, g_height, ch_count, g_pix_fmt))
+                if (!initShmSegment(g_shm_clean, g_out_width, g_out_height, ch_count, g_pix_fmt))
                     fprintf(stderr, "[shm] Failed to initialize clean segment\n");
                 if (g_osd_enabled) {
                     g_shm_osd.name = base + "_osd";
-                    if (!initShmSegment(g_shm_osd, g_width, g_height, ch_count, g_pix_fmt))
+                    if (!initShmSegment(g_shm_osd, g_out_width, g_out_height, ch_count, g_pix_fmt))
                         fprintf(stderr, "[shm] Failed to initialize OSD segment\n");
                 }
             }
+        }
+
+        if (meta_printed) {
+            frame = stretchFrameNearest(
+                frame,
+                g_width,
+                g_height,
+                g_out_width,
+                g_out_height,
+                ch_count
+            );
         }
 
         // ── Clean SHM (always, pre-OSD frame for CV/tracker consumers) ──
@@ -2087,11 +2140,11 @@ int main(int argc, char **argv)
         {
             uint8_t *pixels = reinterpret_cast<uint8_t*>(frame.data());
             if (g_mavlink_osd)
-                renderPx4Osd(pixels, static_cast<int>(g_width),
-                             static_cast<int>(g_height), ch_count);
+                renderPx4Osd(pixels, static_cast<int>(g_out_width),
+                             static_cast<int>(g_out_height), ch_count);
             else
-                renderOsd(pixels, static_cast<int>(g_width),
-                          static_cast<int>(g_height), ch_count);
+                renderOsd(pixels, static_cast<int>(g_out_width),
+                          static_cast<int>(g_out_height), ch_count);
             // OSD SHM — post-OSD frame for display consumers
             shmSegmentWrite(g_shm_osd, frame);
         }
@@ -2101,7 +2154,7 @@ int main(int argc, char **argv)
         if (g_display_mode && g_sdl_texture)
         {
             displayFrame(reinterpret_cast<const uint8_t*>(frame.data()),
-                         g_width, ch_count);
+                         g_out_width, ch_count);
             continue;   // skip stdout — display is the output
         }
 #endif
