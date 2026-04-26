@@ -1179,6 +1179,10 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
     snprintf(buf, sizeof(buf), "P:%+.1f", static_cast<double>(t.pitch_deg));
     drawElem(frame, fw, fh, ch_count, margin, margin + ch + 2, buf, scale);
 
+    // ── Top-left row 3: heading (moved from bottom-center) ──
+    snprintf(buf, sizeof(buf), "HDG:%d", static_cast<int>(t.heading));
+    drawElem(frame, fw, fh, ch_count, margin, margin + (ch + 2) * 2, buf, scale);
+
     // ── Top-right: throttle (from average active motor output) ──
     int thr_pct = 0;
     {
@@ -1205,7 +1209,7 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
     drawElem(frame, fw, fh, ch_count,
              fw - margin - tmlen * cw, margin + ch + 2, buf, scale);
 
-    // ── Top-center: flight mode ──
+    // ── Bottom-center row 1: flight mode (moved from top-center) ──
     const char *mode;
     if      (!t.armed)                    mode = "DISARMED";
     else if (t.flight_mode_flags & 0x02)  mode = "ANGLE";
@@ -1213,12 +1217,13 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
     else                                  mode = "ACRO";
     int mlen = static_cast<int>(strlen(mode));
     int mx = (fw - mlen * cw) / 2;
+    int by_mode = fh - margin - ch;
     if (t.armed)
-        drawElem(frame, fw, fh, ch_count, mx, margin, mode, scale, 80, 255, 80);
+        drawElem(frame, fw, fh, ch_count, mx, by_mode, mode, scale, 80, 255, 80);
     else
-        drawElem(frame, fw, fh, ch_count, mx, margin, mode, scale, 255, 200, 50);
+        drawElem(frame, fw, fh, ch_count, mx, by_mode, mode, scale, 255, 200, 50);
 
-    // ── Top-center row 2: CH6 guidance mode (MANUAL / TERMINAL) ──
+    // ── Bottom-center row 2: CH6 guidance mode (MANUAL / TERMINAL) ──
     const char *guide_mode = "MANUAL";
     uint8_t gm_r = 200, gm_g = 200, gm_b = 200;
     if (t.num_channels >= 6 && t.channels[5] > 2000)
@@ -1227,7 +1232,8 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
     }
     int gmlen = static_cast<int>(strlen(guide_mode));
     int gmx = (fw - gmlen * cw) / 2;
-    drawElem(frame, fw, fh, ch_count, gmx, margin + ch + 2, guide_mode, scale,
+    int by_guide = fh - margin - ch * 2 - 2;
+    drawElem(frame, fw, fh, ch_count, gmx, by_guide, guide_mode, scale,
              gm_r, gm_g, gm_b);
 
     // ── Top-center row 3: CH9 lock status (shown only when active) ──
@@ -1319,11 +1325,7 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
                  fw - margin - hlen * cw, fh - margin - ch * 2 - 2, buf, scale);
     }
 
-    // ── Bottom-center: heading compass bar ──
-    snprintf(buf, sizeof(buf), "HDG:%d", static_cast<int>(t.heading));
-    int hclen = static_cast<int>(strlen(buf));
-    drawElem(frame, fw, fh, ch_count,
-             (fw - hclen * cw) / 2, fh - margin - ch, buf, scale);
+    // ── Bottom-center: heading compass bar moved to top-left stack ──
 
     // ── Top-right row 2: target bearing / distance indicator ──
     if (!g_target_model.empty())
