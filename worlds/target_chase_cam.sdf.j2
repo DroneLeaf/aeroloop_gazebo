@@ -34,11 +34,13 @@
 
     <scene>
       <sky>
+        {%- if clouds %}
         <clouds>
           <speed>3</speed>
           <humidity>0.1</humidity>
           <mean_size>0.3</mean_size>
         </clouds>
+        {%- endif %}
       </sky>
       <background>0.85 0.75 0.55 1</background>
       <shadows>true</shadows>
