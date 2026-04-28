@@ -25,18 +25,18 @@
     </plugin>
 
     <scene>
+      {%- if clouds %}
       <sky>
         <time>10</time>
-        {%- if clouds %}
         <clouds>
           <speed>12</speed>
           <direction>1.2</direction>
-          <humidity>0.7</humidity>
-          <mean_size>0.5</mean_size>
+          <humidity>{{ cloud_density }}</humidity>
+          <mean_size>{{ cloud_density }}</mean_size>
         </clouds>
-        {%- endif %}
       </sky>
-      <background>0.7 0.7 0.7 1</background>
+      {%- endif %}
+      <background>0.5 0.7 0.9 1</background>
       <shadows>true</shadows>
     </scene>
 
