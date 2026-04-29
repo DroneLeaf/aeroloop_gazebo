@@ -55,7 +55,7 @@
           <geometry>
             <plane>
               <normal>0 0 1</normal>
-              <size>1000 1000</size>
+              <size>20000 20000</size>
             </plane>
           </geometry>
           <surface>
@@ -72,7 +72,7 @@
           <geometry>
             <plane>
               <normal>0 0 1</normal>
-              <size>1000 1000</size>
+              <size>20000 20000</size>
             </plane>
           </geometry>
           <material>
@@ -117,7 +117,7 @@
     <!-- Chase target: pose driven by Python via ExternalPosePlugin (UDP 9016) -->
     <model name="moving_target_drone">
       <static>false</static>
-      <pose>{{ "%.4g"|format(orbit_center_x + orbit_radius) }} {{ "%.4g"|format(orbit_center_y) }} {{ "%.4g"|format(target_altitude) }} 0 0 0</pose>
+      <pose>{{ "%.4g"|format(orbit_spawn_x) }} {{ "%.4g"|format(orbit_spawn_y) }} {{ "%.4g"|format(target_altitude) }} 0 0 {{ "%.4g"|format(orbit_spawn_yaw) }}</pose>
       <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
         <listen_port>9016</listen_port>
       </plugin>
