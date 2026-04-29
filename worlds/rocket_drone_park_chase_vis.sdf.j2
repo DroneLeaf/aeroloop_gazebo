@@ -89,7 +89,7 @@
     <!-- Chase target: pose driven by Python via ExternalPosePlugin (UDP 9016) -->
     <model name="moving_target_drone">
       <static>false</static>
-      <pose>{{ "%.4g"|format(orbit_radius) }} 0 {{ "%.4g"|format(target_altitude) }} 0 0 0</pose>
+      <pose>{{ "%.4g"|format(orbit_center_x + orbit_radius) }} {{ "%.4g"|format(orbit_center_y) }} {{ "%.4g"|format(target_altitude) }} 0 0 0</pose>
       <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
         <listen_port>9016</listen_port>
       </plugin>
