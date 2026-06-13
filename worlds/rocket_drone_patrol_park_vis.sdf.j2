@@ -98,6 +98,34 @@
       </link>
     </model>
 
+    <!-- Pedestal — static vis-only cylinder marking the launch stand. Dimensions
+         track the Simulink pedestal (pedestal_radius / pedestal_height) so the
+         visual base lines up with the on-pedestal attitude physics. -->
+    {%- set _ped_r = pedestal_radius | default(0.5) %}
+    {%- set _ped_h = pedestal_height | default(0.30) %}
+    {%- if _ped_h > 0 %}
+    <model name="launch_pedestal">
+      <static>true</static>
+      <pose>0 0 {{ "%.4g"|format(_ped_h / 2.0) }} 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <cast_shadows>true</cast_shadows>
+          <geometry>
+            <cylinder>
+              <radius>{{ "%.4g"|format(_ped_r) }}</radius>
+              <length>{{ "%.4g"|format(_ped_h) }}</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.20 0.21 0.24 1</ambient>
+            <diffuse>0.33 0.34 0.38 1</diffuse>
+            <specular>0.25 0.25 0.28 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    {%- endif %}
+
     <!-- Drone — visualization-only (included from vis model, no physics) -->
     <include>
       <uri>{{ drone_vis_uri }}</uri>
