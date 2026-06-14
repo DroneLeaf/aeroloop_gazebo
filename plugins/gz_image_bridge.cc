@@ -122,8 +122,17 @@ struct TargetPose {
 static std::mutex g_target_mutex;
 static TargetPose g_target_pose;
 
-// Raw-frame UDP stream — forks ffmpeg to encode H.264 and send mpegts.
-static std::string g_stream_dest;      // e.g. "10.0.0.87:5000", empty = disabled
+// Raw-frame stream — forks ffmpeg to encode H.264. Two output modes:
+//   * UDP mpegts   (--stream host:port)  : g_stream_rtsp = false
+//   * RTSP push    (--rtsp rtsp://…)     : g_stream_rtsp = true (push to a
+//                                          server e.g. mediamtx; -f rtsp)
+// The streamed frame is always the *pre-OSD* (clean) frame.
+static std::string g_stream_dest;      // host:port (UDP) or rtsp:// URL, empty = disabled
+static bool        g_stream_rtsp = false;       // dest is an RTSP push URL
+static int         g_stream_fps = 30;           // encoder input/output framerate
+static std::string g_stream_bitrate = "4M";     // libx264 target bitrate (-b:v)
+static std::string g_stream_preset  = "ultrafast"; // libx264 -preset
+static std::string g_stream_tune    = "zerolatency"; // libx264 -tune
 static int         g_stream_fd = -1;   // write-end of pipe to ffmpeg child
 static pid_t       g_stream_pid = -1;  // ffmpeg child PID
 
@@ -336,36 +345,59 @@ static int spawnStreamFfmpeg(uint32_t w, uint32_t h, const char *pix_fmt,
 
         char size_buf[32];
         snprintf(size_buf, sizeof(size_buf), "%ux%u", w, h);
+        char fps_buf[16];
+        snprintf(fps_buf, sizeof(fps_buf), "%d", g_stream_fps > 0 ? g_stream_fps : 30);
 
-        std::string udp_url = "udp://" + dest + "?pkt_size=1316";
+        // Build argv dynamically — fps/bitrate/preset/tune are configurable and
+        // the output muxer differs for UDP-mpegts vs RTSP push.
+        std::vector<std::string> a = {
+            "ffmpeg",
+            "-loglevel", "warning",
+            "-f", "rawvideo",
+            "-pixel_format", pix_fmt,
+            "-video_size", size_buf,
+            "-framerate", fps_buf,
+            "-i", "-",
+            "-an",
+            // libx264 + yuv420p require even W/H; crop 1px off any odd dim so
+            // odd camera sizes (e.g. 853x480) don't fail "width not divisible
+            // by 2". No-op when already even.
+            "-vf", "crop=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-c:v", "libx264",
+            "-preset", g_stream_preset,
+            "-tune", g_stream_tune,
+            "-pix_fmt", "yuv420p",
+            "-g", "1",
+            "-x264-params", "repeat-headers=1",
+            "-b:v", g_stream_bitrate,
+        };
+        std::string out_url;
+        if (g_stream_rtsp) {
+            // Push to an RTSP server (e.g. mediamtx). TCP transport is the most
+            // robust over loopback / lossy links.
+            out_url = dest;
+            a.insert(a.end(), {"-rtsp_transport", "tcp", "-f", "rtsp", out_url});
+        } else {
+            out_url = "udp://" + dest + "?pkt_size=1316";
+            a.insert(a.end(), {"-f", "mpegts", out_url});
+        }
 
-        execlp("ffmpeg", "ffmpeg",
-               "-loglevel", "warning",
-               "-f", "rawvideo",
-               "-pixel_format", pix_fmt,
-               "-video_size", size_buf,
-               "-framerate", "30",
-               "-i", "-",
-               "-an",
-               "-c:v", "libx264",
-               "-preset", "ultrafast",
-               "-tune", "zerolatency",
-               "-pix_fmt", "yuv420p",
-               "-g", "1",
-               "-x264-params", "repeat-headers=1",
-               "-b:v", "4M",
-               "-f", "mpegts",
-               udp_url.c_str(),
-               (char *)nullptr);
-        // execlp only returns on error
-        perror("[stream] execlp ffmpeg");
+        std::vector<char *> argv;
+        argv.reserve(a.size() + 1);
+        for (auto &s : a) argv.push_back(const_cast<char *>(s.c_str()));
+        argv.push_back(nullptr);
+
+        execvp("ffmpeg", argv.data());
+        // execvp only returns on error
+        perror("[stream] execvp ffmpeg");
         _exit(127);
     }
 
     // Parent
     close(pipefd[0]);  // close read end
-    fprintf(stderr, "[gz_image_bridge] Streaming raw %ux%u %s → udp://%s (ffmpeg pid %d)\n",
-            w, h, pix_fmt, dest.c_str(), (int)child_pid);
+    fprintf(stderr, "[gz_image_bridge] Streaming raw %ux%u %s @ %dfps %s → %s%s (ffmpeg pid %d)\n",
+            w, h, pix_fmt, g_stream_fps, g_stream_bitrate.c_str(),
+            g_stream_rtsp ? "" : "udp://", dest.c_str(), (int)child_pid);
     return pipefd[1];  // write end
 }
 
@@ -426,6 +458,12 @@ static std::string stretchFrameNearest(const std::string &src,
 
 static void streamWriterThread()
 {
+    // Owns the ffmpeg pusher lifecycle: spawn once geometry is known, and
+    // respawn whenever it dies (RTSP server not up yet, server restarted, or a
+    // broken pipe). Attempts are throttled so a down server isn't hammered.
+    auto last_spawn = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+    const auto kRespawnCooldown = std::chrono::seconds(2);
+
     while (g_running)
     {
         std::string frame;
@@ -437,8 +475,38 @@ static void streamWriterThread()
             frame.swap(g_stream_frame);
             g_stream_new_frame = false;
         }
+
+        // Reap a dead pusher so it can be respawned.
+        if (g_stream_pid > 0) {
+            int st = 0;
+            if (waitpid(g_stream_pid, &st, WNOHANG) == g_stream_pid) {
+                if (g_stream_fd >= 0) { close(g_stream_fd); g_stream_fd = -1; }
+                g_stream_pid = -1;
+            }
+        }
+
+        // (Re)spawn once the old pusher is fully reaped and geometry is known,
+        // throttled by cooldown (g_stream_pid<=0 avoids double-spawning while a
+        // write-error closed the fd but the child hasn't been reaped yet).
+        if (g_stream_fd < 0 && g_stream_pid <= 0 &&
+            g_meta_ready.load(std::memory_order_acquire)) {
+            auto now = std::chrono::steady_clock::now();
+            if (now - last_spawn >= kRespawnCooldown) {
+                last_spawn = now;
+                g_stream_fd = spawnStreamFfmpeg(g_out_width, g_out_height, g_pix_fmt,
+                                                g_stream_dest, g_stream_pid);
+            }
+        }
+
         if (g_stream_fd >= 0)
             streamWriteFrame(g_stream_fd, frame);
+    }
+
+    // Shutdown: stop the pusher.
+    if (g_stream_pid > 0) {
+        kill(g_stream_pid, SIGTERM);
+        waitpid(g_stream_pid, nullptr, 0);
+        g_stream_pid = -1;
     }
 }
 
@@ -1921,7 +1989,17 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--msp-port") == 0 && i + 1 < argc)
             g_msp_port = atoi(argv[++i]);
         else if (strcmp(argv[i], "--stream") == 0 && i + 1 < argc)
-            g_stream_dest = argv[++i];
+            { g_stream_dest = argv[++i]; g_stream_rtsp = false; }
+        else if (strcmp(argv[i], "--rtsp") == 0 && i + 1 < argc)
+            { g_stream_dest = argv[++i]; g_stream_rtsp = true; }
+        else if (strcmp(argv[i], "--stream-fps") == 0 && i + 1 < argc)
+            g_stream_fps = std::max(1, atoi(argv[++i]));
+        else if (strcmp(argv[i], "--stream-bitrate") == 0 && i + 1 < argc)
+            g_stream_bitrate = argv[++i];
+        else if (strcmp(argv[i], "--stream-preset") == 0 && i + 1 < argc)
+            g_stream_preset = argv[++i];
+        else if (strcmp(argv[i], "--stream-tune") == 0 && i + 1 < argc)
+            g_stream_tune = argv[++i];
         else if (strcmp(argv[i], "--cam-pitch") == 0 && i + 1 < argc)
             g_cam_pitch_deg = atof(argv[++i]);
         else if (strcmp(argv[i], "--out-width") == 0 && i + 1 < argc)
@@ -1955,7 +2033,13 @@ int main(int argc, char **argv)
             "  --msp-port N       MSP TCP port (default: 5763 = UART3)\n"
             "  --mavlink-osd      Use MAVLink UDP telemetry (PX4 stack) instead of MSP\n"
             "  --mavlink-port N   MAVLink UDP port (default: 14550)\n"
-            "  --stream H:P       Stream raw (no OSD) H.264 over UDP to host:port\n"
+            "  --stream H:P       Stream raw (no OSD) H.264 mpegts over UDP to host:port\n"
+            "  --rtsp URL         Push raw (no OSD) H.264 to an RTSP server (e.g.\n"
+            "                     rtsp://127.0.0.1:8554/tracker)\n"
+            "  --stream-fps N     Stream encoder framerate (default: 30)\n"
+            "  --stream-bitrate V libx264 target bitrate, e.g. 4M (default: 4M)\n"
+            "  --stream-preset P  libx264 -preset (default: ultrafast)\n"
+            "  --stream-tune T    libx264 -tune (default: zerolatency)\n"
             "  --cam-pitch DEG    Camera pitch in degrees (default: -80)\n"
             "  --out-width PX     Output frame width after stretch (default: 640)\n"
             "  --out-height PX    Output frame height after stretch (default: 480)\n"
@@ -1972,6 +2056,9 @@ int main(int argc, char **argv)
 
     std::signal(SIGINT, sigHandler);
     std::signal(SIGTERM, sigHandler);
+    // Writing to a dead ffmpeg pusher's pipe must NOT kill us — handle it as an
+    // EPIPE write error (streamWriteFrame) so the stream can be respawned.
+    std::signal(SIGPIPE, SIG_IGN);
 
     // Start telemetry thread (MSP for Betaflight, MAVLink UDP for PX4)
     std::thread osd_thread;
@@ -2083,10 +2170,8 @@ int main(int argc, char **argv)
             else
                 ch_count = 3;
 
-            // Spawn ffmpeg stream child now that we know resolution
-            if (!g_stream_dest.empty())
-                g_stream_fd = spawnStreamFfmpeg(g_out_width, g_out_height, g_pix_fmt,
-                                               g_stream_dest, g_stream_pid);
+            // (ffmpeg stream child is spawned — and respawned on death — by
+            //  streamWriterThread once g_meta_ready is set.)
 
 #ifdef HAS_SDL2
             // Initialize SDL2 display once we know the frame dimensions
@@ -2128,8 +2213,10 @@ int main(int argc, char **argv)
             shmSegmentWrite(g_shm_clean, frame);
 
         // ── Raw LAN stream (before OSD so frames are clean) ──
-        // Hand off to the dedicated stream writer thread (non-blocking).
-        if (g_stream_fd >= 0)
+        // Hand off to the dedicated stream writer thread (non-blocking). Feed it
+        // whenever streaming is configured — even while the ffmpeg pusher is down
+        // — so the thread can (re)spawn it (e.g. RTSP server started late).
+        if (!g_stream_dest.empty())
         {
             std::lock_guard<std::mutex> lk(g_stream_mutex);
             g_stream_frame = frame;   // copy pre-OSD frame
