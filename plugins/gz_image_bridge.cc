@@ -138,6 +138,10 @@ static std::string g_stream_tune    = "zerolatency"; // libx264 -tune
 static int         g_stream_fd = -1;   // write-end of pipe to ffmpeg child
 static pid_t       g_stream_pid = -1;  // ffmpeg child PID
 
+// White-hot thermal styling: render each frame as luminance grayscale so a
+// visible-light camera reads like an analog white-hot thermal feed (--thermal).
+static bool        g_thermal = false;
+
 // Direct display mode — renders frames in an SDL2 window instead of piping
 // through ffmpeg.  Eliminates encode/decode overhead for minimum latency.
 static bool g_display_mode = false;
@@ -478,6 +482,72 @@ static std::string stretchFrameNearest(const std::string &src,
         }
     }
     return dst;
+}
+
+// White-hot thermal styling: collapse each pixel to its luminance (hot/bright →
+// white) so a visible-light render reads like an analog white-hot thermal feed.
+// In-place; preserves alpha. ch_count 3 (rgb24/bgr24) or 4 (rgba/bgra).
+static void applyThermalWhiteHot(std::string &frame, uint32_t w, uint32_t h,
+                                 int ch_count, const char *pix_fmt)
+{
+    const size_t n = static_cast<size_t>(w) * h;
+    if (ch_count < 3 || frame.size() < n * static_cast<size_t>(ch_count)) return;
+
+    // Day → night white-hot tone curve (built once).
+    //
+    // The visible render is a *daytime* scene: the sky/clouds are bright and the
+    // target drone is a dark silhouette against them — the opposite of a thermal
+    // feed. A real white-hot LWIR feed of an aerial target at night shows a hot
+    // (bright) target against a cold (dark) sky. We approximate that by:
+    //   1. inverting luminance      → cold-bright sky becomes dark, the dark
+    //                                  warm target becomes bright;
+    //   2. a night gamma (>1)        → crushes the (now dark) cold sky toward
+    //                                  black so it reads as a cold night sky,
+    //                                  while hot targets stay bright;
+    //   3. a small black floor + white knee for a crisp white-hot target.
+    // (Assumes a sky-facing tracker where the target is darker than the
+    //  background, which is the aerial-intercept use case.)
+    // FLOOR keeps the cold night sky a dark grey (not pure black) so it reads
+    // like a real LWIR background AND stays above downstream dark-frame health
+    // checks (e.g. leaf-tracker dark_mean_threshold ~8). NOISE_AMP adds subtle
+    // sensor grain so the sky isn't a flat digital gain.
+    static const int FLOOR = 22;
+    static const int NOISE_AMP = 7;          // ± grey levels
+    static uint8_t lut[256];
+    static bool lut_ready = false;
+    if (!lut_ready) {
+        const float gamma = 2.0f;            // higher = darker/colder night sky
+        for (int i = 0; i < 256; ++i) {
+            float inv = (255.0f - static_cast<float>(i)) / 255.0f;  // invert
+            float v = std::pow(inv, gamma);                          // night crush
+            int out = FLOOR + static_cast<int>(v * (255 - FLOOR) + 0.5f);
+            lut[i] = static_cast<uint8_t>(out < 0 ? 0 : out > 255 ? 255 : out);
+        }
+        lut_ready = true;
+    }
+
+    // Per-frame-varying cheap LCG for grain (Math.random/time not needed).
+    static uint32_t seed = 0x9e3779b9u;
+    seed += 0x6d2b79f5u;
+    uint32_t rng = seed;
+
+    // Pixel byte order: rgba/rgb24 → R first; bgra/bgr24 → B first.
+    const bool bgr = (strncmp(pix_fmt, "bgr", 3) == 0);
+    uint8_t *p = reinterpret_cast<uint8_t *>(&frame[0]);
+    for (size_t i = 0; i < n; ++i) {
+        uint8_t *px = p + i * ch_count;
+        const uint8_t r = bgr ? px[2] : px[0];
+        const uint8_t g = px[1];
+        const uint8_t b = bgr ? px[0] : px[2];
+        // Rec.601 luma (integer: 77/150/29 ≈ 0.299/0.587/0.114, /256).
+        const uint8_t y = static_cast<uint8_t>((77 * r + 150 * g + 29 * b) >> 8);
+        int t = lut[y];                      // day→night white-hot mapping
+        // cheap xorshift-ish grain, ±NOISE_AMP
+        rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
+        t += static_cast<int>(rng % (2 * NOISE_AMP + 1)) - NOISE_AMP;
+        const uint8_t o = static_cast<uint8_t>(t < 0 ? 0 : t > 255 ? 255 : t);
+        px[0] = o; px[1] = o; px[2] = o;
+    }
 }
 
 // ─── Non-blocking stream writer thread ───────────────────────────────────────
@@ -2005,6 +2075,8 @@ int main(int argc, char **argv)
             ;  // accepted for backward compat, OSD is on by default
         else if (strcmp(argv[i], "--no-osd") == 0)
             g_osd_enabled = false;
+        else if (strcmp(argv[i], "--thermal") == 0)
+            g_thermal = true;   // white-hot grayscale styling
         else if (strcmp(argv[i], "--mavlink-osd") == 0)
         {
             g_mavlink_osd  = true;
@@ -2078,6 +2150,7 @@ int main(int argc, char **argv)
             "  --display          Render in SDL2 window (zero-latency, no stdout)\n"
             "  --hidden           With --display: create SDL2 window hidden (SHM still active)\n"
             "  --no-osd           Disable OSD overlay and OSD shared memory segment\n"
+            "  --thermal          White-hot grayscale styling (simulated thermal cam)\n"
             "  --target-model N   SDF model name of the target (enables proximity detection)\n"
             "  --target-link L    Link within the model to track (for multi-link models)\n"
             "  --target-bbox X,Y,Z  Half-extents in metres (default: 0.792,1.047,0.186)\n"
@@ -2239,6 +2312,11 @@ int main(int argc, char **argv)
                 ch_count
             );
         }
+
+        // White-hot thermal styling (dedicated thermal-cam instance). Applied
+        // before SHM/stream/OSD so every consumer sees the thermal frame.
+        if (g_thermal && meta_printed)
+            applyThermalWhiteHot(frame, g_out_width, g_out_height, ch_count, g_pix_fmt);
 
         // ── Clean SHM (always, pre-OSD frame for CV/tracker consumers) ──
         if (meta_printed)
