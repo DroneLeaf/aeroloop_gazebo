@@ -130,6 +130,8 @@ static TargetPose g_target_pose;
 static std::string g_stream_dest;      // host:port (UDP) or rtsp:// URL, empty = disabled
 static bool        g_stream_rtsp = false;       // dest is an RTSP push URL
 static int         g_stream_fps = 30;           // encoder input/output framerate
+static int         g_stream_width = 0;          // explicit output W (0 = source/out width)
+static int         g_stream_height = 0;         // explicit output H (0 = source/out height)
 static std::string g_stream_bitrate = "4M";     // libx264 target bitrate (-b:v)
 static std::string g_stream_preset  = "ultrafast"; // libx264 -preset
 static std::string g_stream_tune    = "zerolatency"; // libx264 -tune
@@ -345,8 +347,29 @@ static int spawnStreamFfmpeg(uint32_t w, uint32_t h, const char *pix_fmt,
 
         char size_buf[32];
         snprintf(size_buf, sizeof(size_buf), "%ux%u", w, h);
+        const int fps = g_stream_fps > 0 ? g_stream_fps : 30;
         char fps_buf[16];
-        snprintf(fps_buf, sizeof(fps_buf), "%d", g_stream_fps > 0 ? g_stream_fps : 30);
+        snprintf(fps_buf, sizeof(fps_buf), "%d", fps);
+        // GOP/keyframe interval. UDP is lossy → all-intra (g=1) so any lost
+        // packet can't corrupt later frames. RTSP is over reliable TCP, so a
+        // normal ~2s GOP gives MUCH better quality at the same bitrate (g=1 was
+        // the main cause of low RTSP quality — every frame an I-frame).
+        char gop_buf[16];
+        snprintf(gop_buf, sizeof(gop_buf), "%d", g_stream_rtsp ? fps * 2 : 1);
+
+        // Video filter: an explicit stream resolution (scale, for upscaling /
+        // stress-testing the sink) when both dims are set, else crop 1px off any
+        // odd dim (libx264 + yuv420p need even W/H). Round requested dims down to
+        // even.
+        std::string vf;
+        if (g_stream_width > 0 && g_stream_height > 0) {
+            char sc[64];
+            snprintf(sc, sizeof(sc), "scale=%d:%d:flags=bicubic",
+                     g_stream_width & ~1, g_stream_height & ~1);
+            vf = sc;
+        } else {
+            vf = "crop=trunc(iw/2)*2:trunc(ih/2)*2";
+        }
 
         // Build argv dynamically — fps/bitrate/preset/tune are configurable and
         // the output muxer differs for UDP-mpegts vs RTSP push.
@@ -359,18 +382,21 @@ static int spawnStreamFfmpeg(uint32_t w, uint32_t h, const char *pix_fmt,
             "-framerate", fps_buf,
             "-i", "-",
             "-an",
-            // libx264 + yuv420p require even W/H; crop 1px off any odd dim so
-            // odd camera sizes (e.g. 853x480) don't fail "width not divisible
-            // by 2". No-op when already even.
-            "-vf", "crop=trunc(iw/2)*2:trunc(ih/2)*2",
+            // Scale to an explicit resolution, or crop odd dims to even (see vf
+            // above) — libx264 + yuv420p require even W/H.
+            "-vf", vf,
             "-c:v", "libx264",
             "-preset", g_stream_preset,
-            "-tune", g_stream_tune,
             "-pix_fmt", "yuv420p",
-            "-g", "1",
+            "-g", gop_buf,
             "-x264-params", "repeat-headers=1",
             "-b:v", g_stream_bitrate,
         };
+        // -tune is optional: "none"/empty omits it (best raw quality, but adds
+        // latency since e.g. zerolatency's no-B-frames constraint is lifted).
+        if (!g_stream_tune.empty() && g_stream_tune != "none")
+            a.insert(a.end(), {"-tune", g_stream_tune});
+
         std::string out_url;
         if (g_stream_rtsp) {
             // Push to an RTSP server (e.g. mediamtx). TCP transport is the most
@@ -1994,6 +2020,10 @@ int main(int argc, char **argv)
             { g_stream_dest = argv[++i]; g_stream_rtsp = true; }
         else if (strcmp(argv[i], "--stream-fps") == 0 && i + 1 < argc)
             g_stream_fps = std::max(1, atoi(argv[++i]));
+        else if (strcmp(argv[i], "--stream-width") == 0 && i + 1 < argc)
+            g_stream_width = std::max(0, atoi(argv[++i]));
+        else if (strcmp(argv[i], "--stream-height") == 0 && i + 1 < argc)
+            g_stream_height = std::max(0, atoi(argv[++i]));
         else if (strcmp(argv[i], "--stream-bitrate") == 0 && i + 1 < argc)
             g_stream_bitrate = argv[++i];
         else if (strcmp(argv[i], "--stream-preset") == 0 && i + 1 < argc)
@@ -2037,6 +2067,8 @@ int main(int argc, char **argv)
             "  --rtsp URL         Push raw (no OSD) H.264 to an RTSP server (e.g.\n"
             "                     rtsp://127.0.0.1:8554/tracker)\n"
             "  --stream-fps N     Stream encoder framerate (default: 30)\n"
+            "  --stream-width N   Explicit stream output width (0=camera width)\n"
+            "  --stream-height N  Explicit stream output height (0=camera height)\n"
             "  --stream-bitrate V libx264 target bitrate, e.g. 4M (default: 4M)\n"
             "  --stream-preset P  libx264 -preset (default: ultrafast)\n"
             "  --stream-tune T    libx264 -tune (default: zerolatency)\n"
