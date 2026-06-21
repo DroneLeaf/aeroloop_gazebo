@@ -144,7 +144,7 @@ static bool        g_thermal = false;
 
 // Direct display mode — renders frames in an SDL2 window instead of piping
 // through ffmpeg.  Eliminates encode/decode overhead for minimum latency.
-static bool g_display_mode = false;
+static bool g_display_mode = true;   // default: show SDL2 window; --no-display for headless
 static bool g_hidden_mode  = false;  // --hidden: create SDL2 window hidden (render to SHM only)
 
 // ── Shared memory frame server ──────────────────────────────────────────────
@@ -2110,6 +2110,8 @@ int main(int argc, char **argv)
             g_out_height = static_cast<uint32_t>(std::max(64, atoi(argv[++i])));
         else if (strcmp(argv[i], "--display") == 0)
             g_display_mode = true;
+        else if (strcmp(argv[i], "--no-display") == 0)
+            g_display_mode = false;
         else if (strcmp(argv[i], "--hidden") == 0)
             g_hidden_mode = true;
         else if (strcmp(argv[i], "--target-model") == 0 && i + 1 < argc)
@@ -2147,7 +2149,8 @@ int main(int argc, char **argv)
             "  --cam-pitch DEG    Camera pitch in degrees (default: -80)\n"
             "  --out-width PX     Output frame width after stretch (default: 640)\n"
             "  --out-height PX    Output frame height after stretch (default: 480)\n"
-            "  --display          Render in SDL2 window (zero-latency, no stdout)\n"
+            "  --display          Render in SDL2 window (zero-latency). DEFAULT.\n"
+            "  --no-display       Run headless — SHM/RTSP only, no SDL2 window\n"
             "  --hidden           With --display: create SDL2 window hidden (SHM still active)\n"
             "  --no-osd           Disable OSD overlay and OSD shared memory segment\n"
             "  --thermal          White-hot grayscale styling (simulated thermal cam)\n"
@@ -2189,8 +2192,14 @@ int main(int argc, char **argv)
         fprintf(stderr, "[gz_image_bridge] Direct display mode (SDL2)\n");
 #else
     if (g_display_mode) {
-        fprintf(stderr, "[gz_image_bridge] --display requires SDL2 (compile with -DHAS_SDL2)\n");
-        return 1;
+        // Built without SDL2: degrade to headless instead of aborting. A bare
+        // `return 1` here destroys the still-joinable writer/OSD threads →
+        // std::thread dtor calls std::terminate() (the core dump). SHM + RTSP
+        // stay active, so headless is fully functional.
+        fprintf(stderr, "[gz_image_bridge] --display requested but built without "
+                        "SDL2 — continuing headless (SHM/RTSP active). Install "
+                        "libsdl2-dev and rebuild for the on-screen window.\n");
+        g_display_mode = false;
     }
 #endif
 
