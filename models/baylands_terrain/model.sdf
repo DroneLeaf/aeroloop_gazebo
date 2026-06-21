@@ -5,6 +5,7 @@
     <static>true</static>
     <link name="body3">
       <visual name="visual">
+        <cast_shadows>false</cast_shadows>
         <geometry>
           <mesh><uri>model://baylands_terrain/media/baylands_03.DAE</uri></mesh>
         </geometry>
