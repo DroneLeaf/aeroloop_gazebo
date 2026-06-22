@@ -31,6 +31,7 @@
           <specular>0.3 0.3 0.3 1</specular>
         </material>
       </visual>
+      {%- if pilot_cam_enabled %}
       <sensor name="fpv_cam" type="camera">
         <pose>0 0 0.262 0 {{ "%.10g"|format(fpv_cam_pitch_rad) }} 0</pose>
         <camera>
@@ -42,18 +43,38 @@
         <update_rate>30</update_rate>
         <visualize>1</visualize>
       </sensor>
-      <sensor name="fpv_tracker_cam" type="camera">
-        <pose>0 0 0.262 {{ "%.10g"|format(tracker_cam_roll_rad) }} {{ "%.10g"|format(tracker_cam_pitch_rad) }} 0</pose>
+      {%- endif %}
+      {%- if tracker_wide_cam_enabled %}
+      <!-- Wide tracker: spherical/fisheye (wideanglecamera). -->
+      <sensor name="fpv_tracker_wide_cam" type="wideanglecamera">
+        <pose>0 0 0.262 {{ "%.10g"|format(tracker_wide_cam_roll_rad) }} {{ "%.10g"|format(tracker_wide_cam_pitch_rad) }} 0</pose>
         <camera>
-          <horizontal_fov>{{ "%.10g"|format(tracker_hfov_rad) }}</horizontal_fov>
-          <image><width>{{ tracker_img_width }}</width><height>{{ tracker_img_height }}</height></image>
+          <horizontal_fov>{{ "%.10g"|format(tracker_wide_hfov_rad) }}</horizontal_fov>
+          <image><width>{{ tracker_wide_img_width }}</width><height>{{ tracker_wide_img_height }}</height></image>
+          <clip><near>0.05</near><far>15000</far></clip>
+          <lens><type>custom</type><custom_function><c1>1.05</c1><c2>4</c2><f>1.0</f><fun>tan</fun></custom_function><scale_to_hfov>true</scale_to_hfov><cutoff_angle>3.1415</cutoff_angle><env_texture_size>512</env_texture_size></lens>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>{{ tracker_wide_cam_fps | default(30) }}</update_rate>
+        <visualize>0</visualize>
+      </sensor>
+      {%- endif %}
+      {%- if tracker_narrow_enabled %}
+      <!-- Narrow tracker: rectilinear (pinhole-calibrated for MSC), narrow FOV. -->
+      <sensor name="fpv_tracker_narrow_cam" type="camera">
+        <pose>0 0 0.262 {{ "%.10g"|format(tracker_narrow_cam_roll_rad) }} {{ "%.10g"|format(tracker_narrow_cam_pitch_rad) }} 0</pose>
+        <camera>
+          <horizontal_fov>{{ "%.10g"|format(tracker_narrow_hfov_rad) }}</horizontal_fov>
+          <image><width>{{ tracker_narrow_img_width }}</width><height>{{ tracker_narrow_img_height }}</height></image>
           <clip><near>0.05</near><far>15000</far></clip>
         </camera>
         <always_on>1</always_on>
-        <update_rate>{{ tracker_cam_fps | default(30) }}</update_rate>
+        <update_rate>{{ tracker_narrow_cam_fps | default(30) }}</update_rate>
         <visualize>0</visualize>
       </sensor>
+      {%- endif %}
       {%- if thermal_cam_enabled %}
+      <!-- Thermal: rectilinear; white-hot recolor in gz_image_bridge. -->
       <sensor name="fpv_thermal_cam" type="camera">
         <pose>0 0 0.262 {{ "%.10g"|format(thermal_cam_roll_rad) }} {{ "%.10g"|format(thermal_cam_pitch_rad) }} 0</pose>
         <camera>
@@ -66,6 +87,7 @@
         <visualize>0</visualize>
       </sensor>
       {%- endif %}
+      {%- if chase_cam_enabled %}
       <sensor name="chase_cam" type="camera">
         <pose>-1.5 0 0.8 0 0.5236 0</pose>
         <camera>
@@ -77,6 +99,7 @@
         <update_rate>30</update_rate>
         <visualize>0</visualize>
       </sensor>
+      {%- endif %}
     </link>
 
     <!-- X-frame rotor layout -->
