@@ -195,3 +195,14 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   `models/stingjet/` (glb only). Vars come from `betaloop` `TARGET_REFS`.
 - Perf: `baylands_terrain` visual `cast_shadows=false` (the terrain was the whole
   shadow-map cost); scene `<shadows>` stays true so the target still casts.
+
+## Session Addendum (2026-06-23) — per-camera fisheye toggle
+
+- Each vis model template's wide/narrow/thermal `<sensor>` switches projection on a
+  `*_fisheye` var: `type="{{ 'wideanglecamera' if <cam>_fisheye else 'camera' }}"`,
+  and the fisheye `<lens>` block (`env_texture_size` 512) is wrapped in
+  `{%- if <cam>_fisheye %}`. Vars `tracker_wide_fisheye` (default true) /
+  `tracker_narrow_fisheye` / `thermal_fisheye` (default false) come from `betaloop`
+  `compute_model_vars`. Both projections render to valid XML for all 3 templates.
+  Narrow/thermal default rectilinear (fisheye cubemaps = 6 render passes each,
+  serialise the single gz render thread).
