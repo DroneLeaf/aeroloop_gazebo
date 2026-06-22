@@ -140,11 +140,11 @@
       </plugin>
       <link name="geranium_link">
         <visual name="visual">
-          <pose>0 0 0 1.57079 0 1.5708</pose>
+          <pose>{{ target_visual_pose }}</pose>
           <geometry>
             <mesh>
-              <uri>model://shahed_drone/meshes/shahed.glb</uri>
-              <scale>1 1 1</scale>
+              <uri>{{ target_mesh_uri }}</uri>
+              <scale>{{ target_scale }}</scale>
             </mesh>
           </geometry>
         </visual>

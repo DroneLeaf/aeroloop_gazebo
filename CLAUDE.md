@@ -179,3 +179,19 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   from camera). Some axes rest off-center (e.g. an axis reading ~\u221233% at idle), so
   a per-axis dead-zone is needed; the depth axis uses a smaller dead-zone for
   responsiveness. Sign flips are common per stick \u2014 negate `value/32767` as needed.
+
+## Session Addendum (2026-06-22)
+
+- Physics `.world(.j2)` files + physics model SDFs (rocket_drone, thaqib_1_prototype,
+  orphans) **deleted** — only `_vis.sdf.j2` worlds remain (shared mesh dirs kept).
+- Vis-model cameras: `fpv_tracker_cam`→`fpv_tracker_wide_cam` (now
+  `type="wideanglecamera"` + fisheye `<lens>`); new `fpv_tracker_narrow_cam` +
+  `fpv_thermal_cam`; all five sensors wrapped in `{% if *_enabled %}`. narrow +
+  thermal are plain `camera` (rectilinear) — fisheye cubemaps (6 faces each)
+  serialise the single gz render thread and tank RTF; only the wide tracker is
+  fisheye. env_texture_size 512 is the wide cubemap's remaining cost knob.
+- Selectable target: world target visuals use `{{ target_mesh_uri }}` (park_chase,
+  patrol_park) / `{{ target_model_uri }}` include (collision_test); new
+  `models/stingjet/` (glb only). Vars come from `betaloop` `TARGET_REFS`.
+- Perf: `baylands_terrain` visual `cast_shadows=false` (the terrain was the whole
+  shadow-map cost); scene `<shadows>` stays true so the target still casts.
