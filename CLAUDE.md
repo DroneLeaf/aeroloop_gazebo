@@ -215,3 +215,14 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   (`type="{{ 'wideanglecamera' if utility_fisheye else 'camera' }}"` + conditional
   `<lens>`). Mount matches the template's wide tracker (rocket/thaqib `0 0 0.262`,
   iris `0.15 0 0.03`). Vars `utility_*` come from `betaloop` `compute_model_vars`.
+
+## Session Addendum (2026-06-23) — parameterised target scale (all targets)
+
+- Both `models/stingjet/model.sdf` and `models/shahed_drone/model.sdf` are now
+  generated from `model.sdf.j2` (`<scale>{{ target_scale | default(...) }}</scale>`
+  on visual + collision; defaults `0.1 0.1 0.1` stingjet / `1 1 1` shahed), rendered
+  by `betaloop` render_vis_templates and **gitignored** (like the `*_vis.sdf`
+  models). The inline worlds (park_chase/patrol_park) already used
+  `{{ target_scale }}`; collision_test (which `<include>`s `model://<target>`) now
+  picks up the scale via the rendered model.sdf. Keep XML comments free of `--`
+  (strict parsers reject it; Gazebo tolerates).

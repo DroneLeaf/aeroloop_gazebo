@@ -1,6 +1,10 @@
 <?xml version="1.0"?>
+<!-- Rendered to model.sdf by betaloop/start.py (render_vis_templates).
+     target_scale is parameterised by the target-scale launcher flag / the
+     leaf-sim-ui "Target Scale" setting (default 1.0x for shahed). Edit this
+     template, not the generated model.sdf. -->
 <sdf version="1.9">
-  <model name="stingjet">
+  <model name="shahed_drone">
     <static>false</static>
     <link name="body">
       <pose>0 0 0 -1.5708 0 0</pose>
@@ -15,16 +19,16 @@
       <visual name="visual">
         <geometry>
           <mesh>
-            <uri>model://stingjet/stingjet.glb</uri>
-            <scale>0.1 0.1 0.1</scale>
+            <uri>model://shahed_drone/meshes/shahed.glb</uri>
+            <scale>{{ target_scale | default('1 1 1') }}</scale>
           </mesh>
         </geometry>
       </visual>
       <collision name="collision">
         <geometry>
           <mesh>
-            <uri>model://stingjet/stingjet.glb</uri>
-            <scale>0.1 0.1 0.1</scale>
+            <uri>model://shahed_drone/meshes/shahed.glb</uri>
+            <scale>{{ target_scale | default('1 1 1') }}</scale>
           </mesh>
         </geometry>
         <surface>
@@ -46,6 +50,7 @@
       <sensor name="contact_sensor" type="contact">
         <always_on>true</always_on>
         <update_rate>50.0</update_rate>
+        <topic>/rocket_drone/target_hit</topic>
         <contact>
           <collision>collision</collision>
         </contact>
