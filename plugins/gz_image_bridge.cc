@@ -132,7 +132,8 @@ static bool        g_stream_rtsp = false;       // dest is an RTSP push URL
 static int         g_stream_fps = 30;           // encoder input/output framerate
 static int         g_stream_width = 0;          // explicit output W (0 = source/out width)
 static int         g_stream_height = 0;         // explicit output H (0 = source/out height)
-static std::string g_stream_bitrate = "4M";     // libx264 target bitrate (-b:v)
+static std::string g_stream_bitrate = "4M";     // libx264 target/cap bitrate (-b:v or -maxrate)
+static int         g_stream_crf     = -1;        // libx264 -crf; >=0 → capped CRF, <0 → ABR -b:v
 static std::string g_stream_preset  = "ultrafast"; // libx264 -preset
 static std::string g_stream_tune    = "zerolatency"; // libx264 -tune
 static int         g_stream_fd = -1;   // write-end of pipe to ffmpeg child
@@ -394,8 +395,18 @@ static int spawnStreamFfmpeg(uint32_t w, uint32_t h, const char *pix_fmt,
             "-pix_fmt", "yuv420p",
             "-g", gop_buf,
             "-x264-params", "repeat-headers=1",
-            "-b:v", g_stream_bitrate,
         };
+        // Rate control. A set CRF (>=0) uses capped CRF — quality-targeted with
+        // the configured bitrate as a ceiling (-maxrate/-bufsize). This fixes
+        // bitrate starvation at higher resolutions, where a fixed -b:v spread the
+        // same bits over ~4x the pixels and produced heavy macroblocking that
+        // reads as "corruption". CRF<0 falls back to plain ABR -b:v (legacy).
+        if (g_stream_crf >= 0)
+            a.insert(a.end(), {"-crf", std::to_string(g_stream_crf),
+                               "-maxrate", g_stream_bitrate,
+                               "-bufsize", g_stream_bitrate});
+        else
+            a.insert(a.end(), {"-b:v", g_stream_bitrate});
         // -tune is optional: "none"/empty omits it (best raw quality, but adds
         // latency since e.g. zerolatency's no-B-frames constraint is lifted).
         if (!g_stream_tune.empty() && g_stream_tune != "none")
@@ -2098,6 +2109,8 @@ int main(int argc, char **argv)
             g_stream_height = std::max(0, atoi(argv[++i]));
         else if (strcmp(argv[i], "--stream-bitrate") == 0 && i + 1 < argc)
             g_stream_bitrate = argv[++i];
+        else if (strcmp(argv[i], "--stream-crf") == 0 && i + 1 < argc)
+            g_stream_crf = atoi(argv[++i]);
         else if (strcmp(argv[i], "--stream-preset") == 0 && i + 1 < argc)
             g_stream_preset = argv[++i];
         else if (strcmp(argv[i], "--stream-tune") == 0 && i + 1 < argc)
@@ -2143,7 +2156,9 @@ int main(int argc, char **argv)
             "  --stream-fps N     Stream encoder framerate (default: 30)\n"
             "  --stream-width N   Explicit stream output width (0=camera width)\n"
             "  --stream-height N  Explicit stream output height (0=camera height)\n"
-            "  --stream-bitrate V libx264 target bitrate, e.g. 4M (default: 4M)\n"
+            "  --stream-bitrate V libx264 target/cap bitrate, e.g. 4M (default: 4M)\n"
+            "  --stream-crf N     libx264 CRF (0-51, lower=better), capped by\n"
+            "                     --stream-bitrate; <0 = off / use ABR bitrate\n"
             "  --stream-preset P  libx264 -preset (default: ultrafast)\n"
             "  --stream-tune T    libx264 -tune (default: zerolatency)\n"
             "  --cam-pitch DEG    Camera pitch in degrees (default: -80)\n"

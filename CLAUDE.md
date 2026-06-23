@@ -236,3 +236,21 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   `{{ target_spawn_yaw }}` (trajectory s=0); player drone yaw is
   `{{ player_heading_rad }}` (configurable, default 0 = east). Light attenuation
   range bumped to 20000 (the larger ex-patrol value) for the 2–3 km trajectory area.
+
+## Session Addendum (2026-06-24) — RTSP CRF rate control (fixes 480p "corruption")
+
+- **Root cause of RTSP artifacts at higher res:** NOT a malformed bitstream and
+  NOT CPU saturation. The raw-frame → ffmpeg pipe path is provably clean
+  (`streamWriteFrame` is a complete blocking write; frame bytes ==
+  `-video_size g_out_width×g_out_height×ch_count`; `streamWriterThread` swaps the
+  shared buffer to a thread-local under the lock before the write; spawn dims match).
+  A lossless TCP transport carrying artifacts only proves *publisher-side*, which is
+  equally true of heavy quantization. The artifacts were **bitrate starvation**: a
+  fixed `-b:v 4M` spread over ~4× the pixels at 480p → ~0.08–0.33 bits/px → macroblocking.
+- **Fix:** `--stream-crf N` (global `g_stream_crf`, default -1 = off). When N>=0,
+  `spawnStreamFfmpeg` emits **capped CRF** `-crf N -maxrate <bitrate> -bufsize <bitrate>`
+  (quality-targeted, bitrate as a ceiling) instead of `-b:v`. CRF 23 at 480p draws
+  ~4–6 Mbps (under the 8 Mbps default cap) → no starvation, full detail kept. Plumbed
+  as `--<feed>-rtsp-crf` (betaloop) → `--stream-crf` (bridge); UI "Quality (CRF)"
+  spin per RTSP card (0 = off → ABR bitrate). Default 23 everywhere (UI/supervisor
+  emit it even when unset, so the fix is on by default).
