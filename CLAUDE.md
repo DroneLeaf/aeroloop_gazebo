@@ -206,3 +206,12 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   `compute_model_vars`. Both projections render to valid XML for all 3 templates.
   Narrow/thermal default rectilinear (fisheye cubemaps = 6 render passes each,
   serialise the single gz render thread).
+
+## Session Addendum (2026-06-23) — utility camera sensor
+
+- Each vis model template gained a `fpv_utility_cam` `<sensor>` (cloned from the wide
+  tracker, gated by `{%- if utility_cam_enabled %}`) at the wide→narrow boundary. Same
+  fisheye-vs-rectilinear switch as the others
+  (`type="{{ 'wideanglecamera' if utility_fisheye else 'camera' }}"` + conditional
+  `<lens>`). Mount matches the template's wide tracker (rocket/thaqib `0 0 0.262`,
+  iris `0.15 0 0.03`). Vars `utility_*` come from `betaloop` `compute_model_vars`.

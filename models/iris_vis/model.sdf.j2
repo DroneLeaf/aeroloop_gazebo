@@ -80,6 +80,23 @@
         <visualize>0</visualize>
       </sensor>
       {%- endif %}
+      {%- if utility_cam_enabled %}
+      <!-- Utility camera: clone of the wide tracker; fisheye or rectilinear per utility_fisheye. -->
+      <sensor name="fpv_utility_cam" type="{{ 'wideanglecamera' if utility_fisheye else 'camera' }}">
+        <pose>0.15 0 0.03 {{ "%.10g"|format(utility_cam_roll_rad) }} {{ "%.10g"|format(utility_cam_pitch_rad) }} 0</pose>
+        <camera>
+          <horizontal_fov>{{ "%.10g"|format(utility_hfov_rad) }}</horizontal_fov>
+          <image><width>{{ utility_img_width }}</width><height>{{ utility_img_height }}</height></image>
+          <clip><near>0.05</near><far>15000</far></clip>
+          {%- if utility_fisheye %}
+          <lens><type>custom</type><custom_function><c1>1.05</c1><c2>4</c2><f>1.0</f><fun>tan</fun></custom_function><scale_to_hfov>true</scale_to_hfov><cutoff_angle>3.1415</cutoff_angle><env_texture_size>512</env_texture_size></lens>
+          {%- endif %}
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>{{ utility_cam_fps | default(30) }}</update_rate>
+        <visualize>0</visualize>
+      </sensor>
+      {%- endif %}
       {%- if tracker_narrow_enabled %}
       <!-- Narrow tracker: rectilinear (pinhole, MSC-calibrated) or fisheye, per tracker_narrow_fisheye. -->
       <sensor name="fpv_tracker_narrow_cam" type="{{ 'wideanglecamera' if tracker_narrow_fisheye else 'camera' }}">
