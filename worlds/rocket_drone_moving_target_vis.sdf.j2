@@ -1,13 +1,14 @@
 <?xml version="1.0" ?>
 <!--
-  Visualization-only world for rocket_drone park chase with Simulink dynamics backend.
-  Gazebo renders only — physics engine present for WorldPoseCmd + JointVelocityCmd.
+  Visualization-only world for the unified moving_target scenario (collapses the
+  former park_chase + patrol_park worlds). Gazebo renders only.
   Drone pose is driven externally via ExternalPosePlugin (UDP 9010).
-  Rotor spinning driven by RotorVisualPlugin (UDP 9012).
-  Target: orbiting Shahed at altitude 50m, arm radius 30m, orbit speed 0.05 rad/s — patchable via start.py.
+  Target ("moving_target") pose is driven by betaloop's parametric trajectory
+  thread via ExternalPosePlugin (UDP 9016): oval / circle / line, with rotation
+  from the east axis and an (E,N) offset from the player drone.
 -->
 <sdf version="1.9">
-  <world name="fpv_chase_park">
+  <world name="fpv_moving_target">
     <gravity>0 0 0</gravity>
     <physics name="realtime" type="ode">
       <max_step_size>0.004</max_step_size>
@@ -46,10 +47,10 @@
       <diffuse>0.95 0.85 0.7 1</diffuse>
       <specular>0.3 0.25 0.2 1</specular>
       <attenuation>
-        <range>1000</range>
+        <range>20000</range>
         <constant>0.9</constant>
-        <linear>0.01</linear>
-        <quadratic>0.001</quadratic>
+        <linear>0.001</linear>
+        <quadratic>0.0001</quadratic>
       </attenuation>
       <direction>-0.5 0.1 -0.9</direction>
     </light>
@@ -77,6 +78,7 @@
     {%- endfor %}
     {%- endfor %}
 
+    <!-- Large ground plane for the extended trajectory area -->
     <model name="desert_plane">
       <static>true</static>
       <link name="link">
@@ -124,17 +126,19 @@
     </model>
     {%- endif %}
 
-    <!-- Drone — visualization-only (included from vis model, no physics) -->
+    <!-- Drone — visualization-only (included from vis model, no physics).
+         Heading configurable (player_heading_rad; default 0 = facing east). -->
     <include>
       <uri>{{ drone_vis_uri }}</uri>
       <name>{{ drone_name }}</name>
-      <pose>0 0 0 0 0 0</pose>
+      <pose>0 0 0 0 0 {{ "%.6g"|format(player_heading_rad | default(0.0)) }}</pose>
     </include>
 
-    <!-- Chase target: pose driven by Python via ExternalPosePlugin (UDP 9016) -->
-    <model name="moving_target_drone">
+    <!-- Moving target: pose driven by betaloop's parametric trajectory thread
+         via ExternalPosePlugin (UDP 9016). Spawned at s=0 of the trajectory. -->
+    <model name="moving_target">
       <static>false</static>
-      <pose>{{ "%.4g"|format(orbit_spawn_x) }} {{ "%.4g"|format(orbit_spawn_y) }} {{ "%.4g"|format(target_altitude) }} 0 0 {{ "%.4g"|format(orbit_spawn_yaw) }}</pose>
+      <pose>{{ "%.4g"|format(target_spawn_x) }} {{ "%.4g"|format(target_spawn_y) }} {{ "%.4g"|format(target_altitude) }} 0 0 {{ "%.4g"|format(target_spawn_yaw) }}</pose>
       <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
         <listen_port>9016</listen_port>
       </plugin>

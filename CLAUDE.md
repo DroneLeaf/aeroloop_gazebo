@@ -226,3 +226,13 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   `{{ target_scale }}`; collision_test (which `<include>`s `model://<target>`) now
   picks up the scale via the rendered model.sdf. Keep XML comments free of `--`
   (strict parsers reject it; Gazebo tolerates).
+
+## Session Addendum (2026-06-23) — moving_target world (park_chase + patrol_park collapse)
+
+- `worlds/rocket_drone_park_chase_vis.sdf.j2` + `..._patrol_park_vis.sdf.j2`
+  **deleted**; replaced by `worlds/rocket_drone_moving_target_vis.sdf.j2`
+  (`<world name="fpv_moving_target">`, target model `moving_target` on
+  ExternalPosePlugin 9016). The target spawns at `{{ target_spawn_x/y }}` /
+  `{{ target_spawn_yaw }}` (trajectory s=0); player drone yaw is
+  `{{ player_heading_rad }}` (configurable, default 0 = east). Light attenuation
+  range bumped to 20000 (the larger ex-patrol value) for the 2–3 km trajectory area.
