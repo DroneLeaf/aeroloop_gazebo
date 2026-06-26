@@ -254,3 +254,14 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   as `--<feed>-rtsp-crf` (betaloop) → `--stream-crf` (bridge); UI "Quality (CRF)"
   spin per RTSP card (0 = off → ABR bitrate). Default 23 everywhere (UI/supervisor
   emit it even when unset, so the fix is on by default).
+
+## Session Addendum (2026-06-24) — per-camera fisheye lens intrinsics
+
+- Each vis-model template's fisheye `<lens>` `<custom_function>` is now templated:
+  `<c1>{{ <cam>_lens_c1 }}</c1><c2>{{ <cam>_lens_c2 }}</c2><c3>{{ <cam>_lens_c3 }}</c3>
+  <f>1.0</f><fun>{{ <cam>_lens_fun }}</fun>` (added an explicit `<c3>`; `scale_to_hfov`
+  + `cutoff_angle 3.1415` + `env_texture_size 512` unchanged). Vars `<cam>_lens_c1/c2/c3/fun`
+  for `tracker_wide` / `tracker_narrow` / `thermal` / `utility` come from `betaloop`
+  `compute_model_vars` (defaults 1.05/4.0/0.0/tan → byte-identical render to before).
+  Mapping: `r = c1*f*fun(theta/c2 + c3)`; `fun` ∈ {tan,sin,id}. All 3 templates
+  (rocket_drone/thaqib/iris) edited identically.

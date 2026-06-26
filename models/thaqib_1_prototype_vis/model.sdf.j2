@@ -53,7 +53,7 @@
           <image><width>{{ tracker_wide_img_width }}</width><height>{{ tracker_wide_img_height }}</height></image>
           <clip><near>0.05</near><far>15000</far></clip>
           {%- if tracker_wide_fisheye %}
-          <lens><type>custom</type><custom_function><c1>1.05</c1><c2>4</c2><f>1.0</f><fun>tan</fun></custom_function><scale_to_hfov>true</scale_to_hfov><cutoff_angle>3.1415</cutoff_angle><env_texture_size>512</env_texture_size></lens>
+          <lens><type>custom</type><custom_function><c1>{{ tracker_wide_lens_c1 }}</c1><c2>{{ tracker_wide_lens_c2 }}</c2><c3>{{ tracker_wide_lens_c3 }}</c3><f>1.0</f><fun>{{ tracker_wide_lens_fun }}</fun></custom_function><scale_to_hfov>true</scale_to_hfov><cutoff_angle>3.1415</cutoff_angle><env_texture_size>512</env_texture_size></lens>
           {%- endif %}
         </camera>
         <always_on>1</always_on>
@@ -70,7 +70,7 @@
           <image><width>{{ utility_img_width }}</width><height>{{ utility_img_height }}</height></image>
           <clip><near>0.05</near><far>15000</far></clip>
           {%- if utility_fisheye %}
-          <lens><type>custom</type><custom_function><c1>1.05</c1><c2>4</c2><f>1.0</f><fun>tan</fun></custom_function><scale_to_hfov>true</scale_to_hfov><cutoff_angle>3.1415</cutoff_angle><env_texture_size>512</env_texture_size></lens>
+          <lens><type>custom</type><custom_function><c1>{{ utility_lens_c1 }}</c1><c2>{{ utility_lens_c2 }}</c2><c3>{{ utility_lens_c3 }}</c3><f>1.0</f><fun>{{ utility_lens_fun }}</fun></custom_function><scale_to_hfov>true</scale_to_hfov><cutoff_angle>3.1415</cutoff_angle><env_texture_size>512</env_texture_size></lens>
           {%- endif %}
         </camera>
         <always_on>1</always_on>
@@ -87,7 +87,7 @@
           <image><width>{{ tracker_narrow_img_width }}</width><height>{{ tracker_narrow_img_height }}</height></image>
           <clip><near>0.05</near><far>15000</far></clip>
           {%- if tracker_narrow_fisheye %}
-          <lens><type>custom</type><custom_function><c1>1.05</c1><c2>4</c2><f>1.0</f><fun>tan</fun></custom_function><scale_to_hfov>true</scale_to_hfov><cutoff_angle>3.1415</cutoff_angle><env_texture_size>512</env_texture_size></lens>
+          <lens><type>custom</type><custom_function><c1>{{ tracker_narrow_lens_c1 }}</c1><c2>{{ tracker_narrow_lens_c2 }}</c2><c3>{{ tracker_narrow_lens_c3 }}</c3><f>1.0</f><fun>{{ tracker_narrow_lens_fun }}</fun></custom_function><scale_to_hfov>true</scale_to_hfov><cutoff_angle>3.1415</cutoff_angle><env_texture_size>512</env_texture_size></lens>
           {%- endif %}
         </camera>
         <always_on>1</always_on>
@@ -104,7 +104,7 @@
           <image><width>{{ thermal_img_width }}</width><height>{{ thermal_img_height }}</height></image>
           <clip><near>0.05</near><far>15000</far></clip>
           {%- if thermal_fisheye %}
-          <lens><type>custom</type><custom_function><c1>1.05</c1><c2>4</c2><f>1.0</f><fun>tan</fun></custom_function><scale_to_hfov>true</scale_to_hfov><cutoff_angle>3.1415</cutoff_angle><env_texture_size>512</env_texture_size></lens>
+          <lens><type>custom</type><custom_function><c1>{{ thermal_lens_c1 }}</c1><c2>{{ thermal_lens_c2 }}</c2><c3>{{ thermal_lens_c3 }}</c3><f>1.0</f><fun>{{ thermal_lens_fun }}</fun></custom_function><scale_to_hfov>true</scale_to_hfov><cutoff_angle>3.1415</cutoff_angle><env_texture_size>512</env_texture_size></lens>
           {%- endif %}
         </camera>
         <always_on>1</always_on>
