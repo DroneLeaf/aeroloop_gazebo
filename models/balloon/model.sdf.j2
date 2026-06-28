@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<!-- Rendered to model.sdf by betaloop/start.py (render_vis_templates).
+     The balloon is a primitive sphere (no mesh). target_scale / target_radius
+     are parameterised by the target-scale launcher flag / the leaf-sim-ui
+     "Target Scale" setting. Edit this template, not the generated model.sdf.
+     Used by worlds that <include> the target (e.g. collision_test); worlds that
+     inline the visual draw the sphere directly from target_radius/target_color. -->
+<sdf version="1.9">
+  <model name="balloon">
+    <static>false</static>
+    <link name="body">
+      <gravity>false</gravity>
+      <inertial>
+        <mass>0.1</mass>
+        <inertia>
+          <ixx>0.001</ixx><iyy>0.001</iyy><izz>0.001</izz>
+          <ixy>0.0</ixy><ixz>0.0</ixz><iyz>0.0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry>
+          <sphere>
+            <radius>{{ target_radius | default('0.5') }}</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>{{ target_color | default('0.9 0.1 0.1') }} 1</ambient>
+          <diffuse>{{ target_color | default('0.9 0.1 0.1') }} 1</diffuse>
+          <specular>0.6 0.2 0.2 1</specular>
+        </material>
+      </visual>
+      <collision name="collision">
+        <geometry>
+          <sphere>
+            <radius>{{ target_radius | default('0.5') }}</radius>
+          </sphere>
+        </geometry>
+        <surface>
+          <bounce>
+            <restitution_coefficient>0.1</restitution_coefficient>
+            <threshold>0.0</threshold>
+          </bounce>
+          <friction>
+            <ode><mu>1.0</mu><mu2>1.0</mu2></ode>
+          </friction>
+          <contact>
+            <ode>
+              <kp>100000</kp><kd>10</kd>
+              <max_vel>1.0</max_vel><min_depth>0.001</min_depth>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+      <sensor name="contact_sensor" type="contact">
+        <always_on>true</always_on>
+        <update_rate>50.0</update_rate>
+        <topic>/rocket_drone/target_hit</topic>
+        <contact>
+          <collision>collision</collision>
+        </contact>
+      </sensor>
+    </link>
+  </model>
+</sdf>

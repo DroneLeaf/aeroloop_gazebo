@@ -1,14 +1,14 @@
 <?xml version="1.0" ?>
 <!--
-  Visualization-only world for the unified moving_target scenario (collapses the
-  former park_chase + patrol_park worlds). Gazebo renders only.
+  Visualization-only world for the rocket_drone wind (drifting target) test.
+  Gazebo renders only — physics engine present for WorldPoseCmd.
   Drone pose is driven externally via ExternalPosePlugin (UDP 9010).
-  Target ("moving_target") pose is driven by betaloop's parametric trajectory
-  thread via ExternalPosePlugin (UDP 9016): oval / circle / line, with rotation
-  from the east axis and an (E,N) offset from the player drone.
+  Rotor spinning driven by RotorVisualPlugin (UDP 9012).
+  Target: selectable (balloon / shahed / stingjet) — its position is driven by
+  the wind (Lissajous drift or harmonic) thread via ExternalPosePlugin (UDP 9014).
 -->
 <sdf version="1.9">
-  <world name="fpv_moving_target">
+  <world name="windy_target">
     <gravity>0 0 0</gravity>
     <physics name="realtime" type="ode">
       <max_step_size>0.004</max_step_size>
@@ -44,42 +44,19 @@
     <light name="sun" type="directional">
       <cast_shadows>true</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
-      <diffuse>0.95 0.85 0.7 1</diffuse>
-      <specular>0.3 0.25 0.2 1</specular>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
       <attenuation>
-        <range>20000</range>
+        <range>1000</range>
         <constant>0.9</constant>
-        <linear>0.001</linear>
-        <quadratic>0.0001</quadratic>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
       </attenuation>
       <direction>-0.5 0.1 -0.9</direction>
     </light>
 
-    <!-- Original baylands terrain (unchanged position) -->
-    <include>
-      <uri>model://baylands_terrain</uri>
-      <name>baylands_terrain</name>
-      <pose>-100 150 -0.77 0 0 0</pose>
-    </include>
-    <!-- 5×5 tiled duplicates (~958m × 628m per tile) centred on original -->
-    {%- set tile_cx = -100 %}
-    {%- set tile_cy = 150 %}
-    {%- set tile_dx = 958 %}
-    {%- set tile_dy = 628 %}
-    {%- for ix in range(-2, 3) %}
-    {%- for iy in range(-2, 3) %}
-    {%- if ix != 0 or iy != 0 %}
-    <include>
-      <uri>model://baylands_terrain</uri>
-      <name>baylands_terrain_{{ ix + 2 }}_{{ iy + 2 }}</name>
-      <pose>{{ tile_cx + ix * tile_dx }} {{ tile_cy + iy * tile_dy }} -0.77 0 0 0</pose>
-    </include>
-    {%- endif %}
-    {%- endfor %}
-    {%- endfor %}
-
-    <!-- Large ground plane for the extended trajectory area -->
-    <model name="desert_plane">
+    <!-- Ground plane (visual only) -->
+    <model name="grass_plane">
       <static>true</static>
       <link name="link">
         <visual name="visual">
@@ -87,12 +64,12 @@
           <geometry>
             <plane>
               <normal>0 0 1</normal>
-              <size>20000 20000</size>
+              <size>1000 1000</size>
             </plane>
           </geometry>
           <material>
-            <ambient>0.76 0.60 0.42 1</ambient>
-            <diffuse>0.76 0.60 0.42 1</diffuse>
+            <ambient>0.25 0.45 0.25 1</ambient>
+            <diffuse>0.25 0.45 0.25 1</diffuse>
           </material>
         </visual>
       </link>
@@ -126,23 +103,22 @@
     </model>
     {%- endif %}
 
-    <!-- Drone — visualization-only (included from vis model, no physics).
-         Heading configurable (player_heading_rad; default 0 = facing east). -->
+    <!-- Drone — visualization-only -->
     <include>
       <uri>{{ drone_vis_uri }}</uri>
       <name>{{ drone_name }}</name>
-      <pose>0 0 0 0 0 {{ "%.6g"|format(player_heading_rad | default(0.0)) }}</pose>
+      <pose>0 0 0 0 0 0</pose>
     </include>
 
-    <!-- Moving target: pose driven by betaloop's parametric trajectory thread
-         via ExternalPosePlugin (UDP 9016). Spawned at s=0 of the trajectory. -->
-    <model name="moving_target">
+    <!-- Wind target: selectable (balloon sphere / shahed / stingjet mesh) — pose
+         driven by the wind drift/harmonic thread via ExternalPosePlugin UDP 9014 -->
+    <model name="windy_target">
       <static>false</static>
-      <pose>{{ "%.4g"|format(target_spawn_x) }} {{ "%.4g"|format(target_spawn_y) }} {{ "%.4g"|format(target_altitude) }} 0 0 {{ "%.4g"|format(target_spawn_yaw) }}</pose>
+      <pose>{{ "%.4g"|format(target_x) }} {{ "%.4g"|format(target_y) }} {{ "%.4g"|format(target_z) }} 0 0 0</pose>
       <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
-        <listen_port>9016</listen_port>
+        <listen_port>9014</listen_port>
       </plugin>
-      <link name="geranium_link">
+      <link name="body">
         <visual name="visual">
           {%- if target_primitive == 'sphere' %}
           <geometry>

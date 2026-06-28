@@ -1,13 +1,16 @@
 <?xml version="1.0" ?>
 <!--
-  Visualization-only world for rocket_drone balloon intercept test.
+  Visualization-only world for the rocket_drone shake-table / IMU test.
   Gazebo renders only — physics engine present for WorldPoseCmd.
-  Drone pose is driven externally via ExternalPosePlugin (UDP 9010).
+  Drone pose is driven externally via ExternalPosePlugin (UDP 9010); the
+  bf_sim_bridge runs in shake mode, so the drone oscillates horizontally (X/Y)
+  with a coupled roll/pitch rocking about the spawn pose, and BF's IMU
+  (gyro + accel, MSP_RAW_IMU) reflects that harmonic motion.
   Rotor spinning driven by RotorVisualPlugin (UDP 9012).
-  Target: red balloon — position driven by ExternalPosePlugin (UDP 9014).
+  No target model — this world exercises the drone's own dynamics/IMU only.
 -->
 <sdf version="1.9">
-  <world name="balloon_test">
+  <world name="shake_test">
     <gravity>0 0 0</gravity>
     <physics name="realtime" type="ode">
       <max_step_size>0.004</max_step_size>
@@ -102,39 +105,48 @@
     </model>
     {%- endif %}
 
-    <!-- Drone — visualization-only -->
+    <!-- Drone — visualization-only, pose driven via ExternalPosePlugin UDP 9010 -->
     <include>
       <uri>{{ drone_vis_uri }}</uri>
       <name>{{ drone_name }}</name>
       <pose>0 0 0 0 0 0</pose>
     </include>
 
-    <!-- Balloon target: red sphere — pose driven via ExternalPosePlugin UDP 9014 -->
-    <model name="balloon_target">
-      <static>false</static>
+    <!-- Static target for the (shaking) drone to look at — a fixed balloon
+         (selectable target, defaults to balloon) placed in front at the target
+         distance. No ExternalPosePlugin: it holds still. -->
+    <model name="shake_target">
+      <static>true</static>
       <pose>{{ "%.4g"|format(target_x) }} {{ "%.4g"|format(target_y) }} {{ "%.4g"|format(target_z) }} 0 0 0</pose>
-      <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
-        <listen_port>9014</listen_port>
-      </plugin>
-      <link name="balloon_link">
+      <link name="body">
         <visual name="visual">
+          {%- if target_primitive == 'sphere' %}
           <geometry>
             <sphere>
-              <radius>0.5</radius>
+              <radius>{{ target_radius }}</radius>
             </sphere>
           </geometry>
           <material>
-            <ambient>0.9 0.1 0.1 1</ambient>
-            <diffuse>0.9 0.1 0.1 1</diffuse>
+            <ambient>{{ target_color }} 1</ambient>
+            <diffuse>{{ target_color }} 1</diffuse>
             <specular>0.6 0.2 0.2 1</specular>
           </material>
+          {%- else %}
+          <pose>{{ target_visual_pose }}</pose>
+          <geometry>
+            <mesh>
+              <uri>{{ target_mesh_uri }}</uri>
+              <scale>{{ target_scale }}</scale>
+            </mesh>
+          </geometry>
+          {%- endif %}
         </visual>
       </link>
     </model>
 
     <gui fullscreen="0">
       <camera name="user_camera">
-        <pose>-35 0 28 0 0.2 0</pose>
+        <pose>-12 0 4 0 0.15 0</pose>
         <view_controller>orbit</view_controller>
         <projection_type>perspective</projection_type>
       </camera>

@@ -265,3 +265,21 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   `compute_model_vars` (defaults 1.05/4.0/0.0/tan → byte-identical render to before).
   Mapping: `r = c1*f*fun(theta/c2 + c3)`; `fun` ∈ {tan,sin,id}. All 3 templates
   (rocket_drone/thaqib/iris) edited identically.
+
+## Session Addendum (2026-06-28) — balloon target + windy_target world
+
+- New **`models/balloon/`** (`model.sdf.j2` + `model.config`): a primitive sphere
+  target (link `body`, scalable `target_radius`/`target_color`), rendered to a
+  gitignored `model.sdf` like the other targets. Used by worlds that `<include>`
+  the target (collision_test). Added to `.gitignore`.
+- World template **`rocket_drone_balloon_test_vis.sdf.j2` → `rocket_drone_windy_target_vis.sdf.j2`**
+  (`git mv`; `<world name="windy_target">`). The hardcoded red-sphere `balloon_target`
+  model became a generic `windy_target` model whose visual branches
+  `{% if target_primitive == 'sphere' %}<sphere>{% else %}<mesh>{% endif %}` (still
+  ExternalPosePlugin UDP 9014, link `body`).
+- `rocket_drone_moving_target_vis.sdf.j2` gained the same sphere/mesh branch on
+  `geranium_link` (so the balloon works as a moving target). `rocket_drone_shake_test_vis.sdf.j2`
+  gained a **static** `shake_target` model (same branch) at `target_x/y/z`.
+- The branch keys come from `betaloop.compute_world_vars`: `target_primitive`
+  ('sphere'|''), `target_radius`, `target_color` (mesh path stays `target_mesh_uri`
+  + `target_visual_pose` + `target_scale`).
