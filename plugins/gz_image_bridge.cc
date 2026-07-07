@@ -134,6 +134,7 @@ static int         g_stream_width = 0;          // explicit output W (0 = source
 static int         g_stream_height = 0;         // explicit output H (0 = source/out height)
 static std::string g_stream_bitrate = "4M";     // libx264 target/cap bitrate (-b:v or -maxrate)
 static int         g_stream_crf     = -1;        // libx264 -crf; >=0 → capped CRF, <0 → ABR -b:v
+static int         g_stream_gop     = 0;         // GOP/keyframe interval (frames); 0 = auto (fps*2 RTSP, 1 UDP)
 static std::string g_stream_preset  = "ultrafast"; // libx264 -preset
 static std::string g_stream_tune    = "zerolatency"; // libx264 -tune
 static int         g_stream_fd = -1;   // write-end of pipe to ffmpeg child
@@ -358,9 +359,13 @@ static int spawnStreamFfmpeg(uint32_t w, uint32_t h, const char *pix_fmt,
         // GOP/keyframe interval. UDP is lossy → all-intra (g=1) so any lost
         // packet can't corrupt later frames. RTSP is over reliable TCP, so a
         // normal ~2s GOP gives MUCH better quality at the same bitrate (g=1 was
-        // the main cause of low RTSP quality — every frame an I-frame).
+        // the main cause of low RTSP quality — every frame an I-frame). An
+        // explicit --stream-gop N (>0) overrides the auto interval: a shorter
+        // GOP (e.g. fps, or 30–60 frames) cuts a late-joining reader's
+        // startup/recovery lag at some quality cost.
         char gop_buf[16];
-        snprintf(gop_buf, sizeof(gop_buf), "%d", g_stream_rtsp ? fps * 2 : 1);
+        const int gop = g_stream_gop > 0 ? g_stream_gop : (g_stream_rtsp ? fps * 2 : 1);
+        snprintf(gop_buf, sizeof(gop_buf), "%d", gop);
 
         // Video filter: an explicit stream resolution (scale, for upscaling /
         // stress-testing the sink) when both dims are set, else crop 1px off any
@@ -2111,6 +2116,8 @@ int main(int argc, char **argv)
             g_stream_bitrate = argv[++i];
         else if (strcmp(argv[i], "--stream-crf") == 0 && i + 1 < argc)
             g_stream_crf = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--stream-gop") == 0 && i + 1 < argc)
+            g_stream_gop = std::max(0, atoi(argv[++i]));
         else if (strcmp(argv[i], "--stream-preset") == 0 && i + 1 < argc)
             g_stream_preset = argv[++i];
         else if (strcmp(argv[i], "--stream-tune") == 0 && i + 1 < argc)
@@ -2159,6 +2166,8 @@ int main(int argc, char **argv)
             "  --stream-bitrate V libx264 target/cap bitrate, e.g. 4M (default: 4M)\n"
             "  --stream-crf N     libx264 CRF (0-51, lower=better), capped by\n"
             "                     --stream-bitrate; <0 = off / use ABR bitrate\n"
+            "  --stream-gop N     GOP/keyframe interval in frames; shorter = faster\n"
+            "                     reader startup/recovery (0 = auto: fps*2 RTSP, 1 UDP)\n"
             "  --stream-preset P  libx264 -preset (default: ultrafast)\n"
             "  --stream-tune T    libx264 -tune (default: zerolatency)\n"
             "  --cam-pitch DEG    Camera pitch in degrees (default: -80)\n"
