@@ -25,10 +25,12 @@
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster">
     </plugin>
 
+    <!-- Sky/sun follow the sky-brightness scalar (betaloop _sky_vars): lower
+         brightness = warmer, lower sun + darker sky (late afternoon). -->
     <scene>
       {%- if clouds %}
       <sky>
-        <time>10</time>
+        <time>{{ sky_time | default(10) }}</time>
         <clouds>
           <speed>12</speed>
           <direction>1.2</direction>
@@ -37,22 +39,22 @@
         </clouds>
       </sky>
       {%- endif %}
-      <background>0.5 0.7 0.9 1</background>
+      <background>{{ background_color | default('0.5 0.7 0.9') }} 1</background>
       <shadows>true</shadows>
     </scene>
 
     <light name="sun" type="directional">
       <cast_shadows>true</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
-      <diffuse>0.95 0.85 0.7 1</diffuse>
-      <specular>0.3 0.25 0.2 1</specular>
+      <diffuse>{{ sun_diffuse | default('0.95 0.85 0.7') }} 1</diffuse>
+      <specular>{{ sun_specular | default('0.3 0.25 0.2') }} 1</specular>
       <attenuation>
         <range>20000</range>
         <constant>0.9</constant>
         <linear>0.001</linear>
         <quadratic>0.0001</quadratic>
       </attenuation>
-      <direction>-0.5 0.1 -0.9</direction>
+      <direction>{{ sun_direction | default('-0.5 0.1 -0.9') }}</direction>
     </light>
 
     <!-- Original baylands terrain (unchanged position) -->
@@ -78,8 +80,10 @@
     {%- endfor %}
     {%- endfor %}
 
-    <!-- Large ground plane for the extended trajectory area -->
-    <model name="desert_plane">
+    <!-- Large ground plane for the extended trajectory area. Color follows the
+         terrain theme (desert tan / lush dark green); the baylands ground
+         textures are swapped to match by betaloop apply_terrain_theme(). -->
+    <model name="ground_plane">
       <static>true</static>
       <link name="link">
         <visual name="visual">
@@ -91,8 +95,8 @@
             </plane>
           </geometry>
           <material>
-            <ambient>0.76 0.60 0.42 1</ambient>
-            <diffuse>0.76 0.60 0.42 1</diffuse>
+            <ambient>{{ ground_color | default('0.76 0.60 0.42') }} 1</ambient>
+            <diffuse>{{ ground_color | default('0.76 0.60 0.42') }} 1</diffuse>
           </material>
         </visual>
       </link>

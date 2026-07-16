@@ -283,3 +283,18 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
 - The branch keys come from `betaloop.compute_world_vars`: `target_primitive`
   ('sphere'|''), `target_radius`, `target_color` (mesh path stays `target_mesh_uri`
   + `target_visual_pose` + `target_scale`).
+
+## Session Addendum (2026-07-16) — terrain themes + sky/sun templating (moving_target)
+
+- `models/baylands_terrain/media/Textures/themes/{desert,lush}/` hold per-theme
+  copies of the three ground textures the DAE references (Grass/Sand/DirtPath).
+  betaloop `apply_terrain_theme` copies a set over the live files at launch —
+  the DAE can't be re-pointed per launch (92 MB, hardcoded texture paths).
+  `themes/desert/` = snapshot of the stock sandy set; `themes/lush/` is
+  regenerable via `themes/generate_lush.py` (PIL; dark green grass from
+  `Grass_original.png` + luminance-preserving recolors of sand/dirt).
+- `rocket_drone_moving_target_vis.sdf.j2`: `desert_plane` → **`ground_plane`**
+  with `{{ ground_color }}`; `<sky><time>`, `<background>`, sun
+  diffuse/specular/direction now templated (`sky_time`, `background_color`,
+  `sun_diffuse`, `sun_specular`, `sun_direction`). All have `| default(...)`
+  equal to the old hardcoded values, so rendering without the vars is unchanged.
