@@ -68,6 +68,7 @@ static std::atomic<bool> g_running{true};
 static std::mutex g_mutex;
 static std::condition_variable g_cv;
 static std::string g_frame_data;
+static uint64_t g_frame_sim_ns = 0;   // render sim time of g_frame_data
 static bool g_new_frame = false;
 
 // Metadata captured from the first frame.
@@ -166,9 +167,12 @@ struct ShmHeader {
     uint32_t stride;         // width * channels
     uint32_t frame_size;     // stride * height
     uint64_t sequence;       // monotonic counter — reader polls this
-    uint64_t timestamp_ns;   // std::chrono steady_clock
+    uint64_t timestamp_ns;   // std::chrono steady_clock (WRITE time, wall)
     char     pix_fmt[16];    // e.g. "rgb24", "rgba"
-    char     _pad[8];        // align to 64 bytes
+    uint64_t sim_time_ns;    // RENDER sim clock of this frame (gz msg header
+                             // stamp); 0 = unknown. Replaced the former _pad[8],
+                             // so the 64-byte layout is unchanged and readers
+                             // that don't know the field see the old zeroed pad.
 };
 static_assert(sizeof(ShmHeader) == 64, "ShmHeader must be 64 bytes");
 
@@ -286,6 +290,7 @@ static bool initShmSegment(ShmSegment &seg, uint32_t w, uint32_t h,
     hdr->frame_size = frame_size;
     hdr->sequence   = 0;
     hdr->timestamp_ns = 0;
+    hdr->sim_time_ns  = 0;
     std::memset(hdr->pix_fmt, 0, sizeof(hdr->pix_fmt));
     std::strncpy(hdr->pix_fmt, pix_fmt, sizeof(hdr->pix_fmt) - 1);
 
@@ -294,7 +299,8 @@ static bool initShmSegment(ShmSegment &seg, uint32_t w, uint32_t h,
     return true;
 }
 
-static void shmSegmentWrite(ShmSegment &seg, const std::string &frame)
+static void shmSegmentWrite(ShmSegment &seg, const std::string &frame,
+                            uint64_t sim_ns)
 {
     if (!seg.ptr) return;
     auto *hdr = reinterpret_cast<ShmHeader*>(seg.ptr);
@@ -306,6 +312,7 @@ static void shmSegmentWrite(ShmSegment &seg, const std::string &frame)
 
     hdr->timestamp_ns = static_cast<uint64_t>(
         std::chrono::steady_clock::now().time_since_epoch().count());
+    hdr->sim_time_ns = sim_ns;
     hdr->sequence++;
 }
 
@@ -2074,6 +2081,8 @@ static void onImage(const gz::msgs::Image &_msg)
             g_meta_ready.store(true, std::memory_order_release);
         }
         g_frame_data = data;      // overwrite — drop any unwritten frame
+        g_frame_sim_ns = static_cast<uint64_t>(_msg.header().stamp().sec()) * 1000000000ull
+                       + static_cast<uint64_t>(_msg.header().stamp().nsec());
         g_new_frame  = true;
     }
     g_cv.notify_one();
@@ -2287,12 +2296,14 @@ int main(int argc, char **argv)
     while (g_running)
     {
         std::string frame;
+        uint64_t frame_sim_ns = 0;
         {
             std::unique_lock<std::mutex> lk(g_mutex);
             g_cv.wait_for(lk, std::chrono::milliseconds(100),
                           [] { return g_new_frame || !g_running; });
             if (!g_new_frame) continue;
             frame.swap(g_frame_data);
+            frame_sim_ns = g_frame_sim_ns;
             g_new_frame = false;
         }
 
@@ -2353,7 +2364,7 @@ int main(int argc, char **argv)
 
         // ── Clean SHM (always, pre-OSD frame for CV/tracker consumers) ──
         if (meta_printed)
-            shmSegmentWrite(g_shm_clean, frame);
+            shmSegmentWrite(g_shm_clean, frame, frame_sim_ns);
 
         // ── Raw LAN stream (before OSD so frames are clean) ──
         // Hand off to the dedicated stream writer thread (non-blocking). Feed it
@@ -2378,7 +2389,7 @@ int main(int argc, char **argv)
                 renderOsd(pixels, static_cast<int>(g_out_width),
                           static_cast<int>(g_out_height), ch_count);
             // OSD SHM — post-OSD frame for display consumers
-            shmSegmentWrite(g_shm_osd, frame);
+            shmSegmentWrite(g_shm_osd, frame, frame_sim_ns);
         }
 
 #ifdef HAS_SDL2
