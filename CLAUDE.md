@@ -315,3 +315,42 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
 - **XML-comment gotcha:** `--` is illegal inside an XML comment, so template
   comments must reference the flag as `target-mesh-color`, never
   `--target-mesh-color` — the latter makes the whole generated SDF unparseable.
+
+## Session Addendum (2026-07-18) — stingjet mesh origin re-centred (calibration-critical)
+
+- **Bug:** `models/stingjet/stingjet.glb` (actually an **MQ-9 Reaper** mesh —
+  node name `uploads_files_800272_MQ-9.001`, 18.79 m span × 10.69 m length ×
+  3.23 m height at scale 1.0) had its geometry **offset from the mesh origin**
+  by `(0, 1.36905, 1.04933)` raw units. Because SDF `<scale>` multiplies vertex
+  positions **about the mesh origin**, that offset scaled with `target_scale`:
+  the visual body sat 0.105 m forward + 0.137 m up from the commanded pose at
+  scale 0.1, 0.21/0.27 m at 0.2, 1.05/1.37 m at 1.0. The pose driven over UDP
+  (and reported as ground truth) is the MODEL ORIGIN, so the tracked target
+  rendered off its own ground-truth position by a **scale-dependent** amount —
+  a body-fixed lever arm that rotates with target yaw, so it reads as
+  structured noise, not a constant image offset. At the wide tracker
+  (1280 px, HFOV 101.8° → f ≈ 520 px) the 0.17 m lever arm at scale 0.1
+  projects to ≈9 px at 10 m / 18 px at 5 m.
+- **Fix:** the glb's single root node gained `translation = -AABB_centre`
+  (JSON-chunk-only edit — vertex/material/UV data untouched, extents provably
+  identical). Geometry AABB centre is now exactly `(0,0,0)`, so the mesh stays
+  centred at ANY `target_scale` with **no per-scale compensation anywhere**.
+  This fixes both consumers at once: the inline-visual worlds
+  (moving_target/windy_target/shake_test) and the `<include>` model path
+  (collision_test), visual **and** collision.
+- **Verified end-to-end**, not assumed: top-down gz render with a marker at the
+  commanded pose — silhouette-vs-origin offset went from **−12.0 px (scale 0.1)
+  / −30.5 px (0.2)** before, to **+0.50 px / +1.00 px** after, matching the
+  perspective-only prediction (+0.32 / +1.26 px) computed by projecting the real
+  vertex cloud. (Gotcha while measuring: a `mean<205` silhouette threshold clips
+  the thin bright nose tip and fakes a ~4–7 px residual — use `<250`.)
+- `shahed.glb` is already centred (1.1 mm ⇒ <0.12 px at 5 m) — no action needed.
+- **If the stingjet asset is ever re-downloaded/replaced, the re-centring must be
+  re-applied** (add a root-node `translation` of −AABB-centre); otherwise the
+  scale-dependent bias silently returns.
+- **Still open (flagged, not fixed):** `TARGET_REFS["stingjet"]["bbox"]`
+  (`0.94,0.54,0.16`) is ordered X=span, Y=length, which matches the `<include>`
+  path (wingspan→body X) but NOT the inline-visual path used by moving_target,
+  where the visual pose `1.57079 0 1.5708` maps length→body X, span→body Y
+  (true half-extents there: `0.534,0.940,0.161`). Same transposition exists for
+  shahed. Check how `gz_image_bridge` orients `--target-bbox` before changing it.
