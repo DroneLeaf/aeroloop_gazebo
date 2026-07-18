@@ -139,6 +139,16 @@
               <scale>{{ target_scale }}</scale>
             </mesh>
           </geometry>
+          {%- if target_mesh_color %}
+          <!-- Flat colour override (target-mesh-color flag). An SDF material
+               fully replaces the .glb's baked-in PBR material in ogre2. Omitted
+               entirely when the colour is "default", so the mesh keeps its own. -->
+          <material>
+            <ambient>{{ target_mesh_color }} 1</ambient>
+            <diffuse>{{ target_mesh_color }} 1</diffuse>
+            <specular>0.3 0.3 0.3 1</specular>
+          </material>
+          {%- endif %}
           {%- endif %}
         </visual>
       </link>

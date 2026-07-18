@@ -298,3 +298,20 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   diffuse/specular/direction now templated (`sky_time`, `background_color`,
   `sun_diffuse`, `sun_specular`, `sun_direction`). All have `| default(...)`
   equal to the old hardcoded values, so rendering without the vars is unchanged.
+
+## Session Addendum (2026-07-18) — target mesh `<material>` override
+
+- The 3 inline-visual target worlds (`rocket_drone_{moving_target,windy_target,
+  shake_test}_vis.sdf.j2`) and both `models/{shahed_drone,stingjet}/model.sdf.j2`
+  now emit an optional `<material>` on the target's **visual** when the
+  `target_mesh_color` template var is non-empty (from `--target-mesh-color`).
+  Empty → no `<material>` element at all, so the mesh keeps its `.glb` material.
+- **Confirmed in ogre2 (gz-sim 8):** an SDF `<material>` on a mesh visual fully
+  overrides the glTF's embedded PBR material — a red override captured as exactly
+  `[170,0,0]` headless, vs the stock shahed mesh's `[110,109,107]`. So this is a
+  real override, not a tint that blends with the baked material.
+- `<collision>` is deliberately NOT given a material (it has no visual effect and
+  would only add noise to the generated SDF).
+- **XML-comment gotcha:** `--` is illegal inside an XML comment, so template
+  comments must reference the flag as `target-mesh-color`, never
+  `--target-mesh-color` — the latter makes the whole generated SDF unparseable.
