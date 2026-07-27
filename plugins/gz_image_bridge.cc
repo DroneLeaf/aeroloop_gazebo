@@ -136,8 +136,9 @@ static int         g_stream_height = 0;         // explicit output H (0 = source
 static std::string g_stream_bitrate = "4M";     // libx264 target/cap bitrate (-b:v or -maxrate)
 static int         g_stream_crf     = -1;        // libx264 -crf; >=0 → capped CRF, <0 → ABR -b:v
 static int         g_stream_gop     = 0;         // GOP/keyframe interval (frames); 0 = auto (fps*2 RTSP, 1 UDP)
-static std::string g_stream_preset  = "ultrafast"; // libx264 -preset
-static std::string g_stream_tune    = "zerolatency"; // libx264 -tune
+static std::string g_stream_preset  = "ultrafast"; // libx264/libx265 -preset
+static std::string g_stream_tune    = "zerolatency"; // libx264/libx265 -tune
+static std::string g_stream_codec   = "h264";       // "h264" (libx264) or "h265"/"hevc" (libx265)
 static int         g_stream_fd = -1;   // write-end of pipe to ffmpeg child
 static pid_t       g_stream_pid = -1;  // ffmpeg child PID
 
@@ -388,8 +389,19 @@ static int spawnStreamFfmpeg(uint32_t w, uint32_t h, const char *pix_fmt,
             vf = "crop=trunc(iw/2)*2:trunc(ih/2)*2";
         }
 
-        // Build argv dynamically — fps/bitrate/preset/tune are configurable and
-        // the output muxer differs for UDP-mpegts vs RTSP push.
+        // Codec: H.264 (libx264) or H.265/HEVC (libx265). Preset names are
+        // shared. repeat-headers=1 (SPS/PPS/VPS with every keyframe, so late
+        // RTSP joiners can decode) is set via the codec-specific -x26x-params;
+        // x265 also gets log-level=error to suppress its verbose banner.
+        const bool is_h265 = (g_stream_codec == "h265" || g_stream_codec == "hevc"
+                              || g_stream_codec == "libx265");
+        const char *vcodec = is_h265 ? "libx265" : "libx264";
+        const char *params_flag = is_h265 ? "-x265-params" : "-x264-params";
+        const std::string params = is_h265 ? "repeat-headers=1:log-level=error"
+                                            : "repeat-headers=1";
+
+        // Build argv dynamically — codec/fps/bitrate/preset/tune are configurable
+        // and the output muxer differs for UDP-mpegts vs RTSP push.
         std::vector<std::string> a = {
             "ffmpeg",
             "-loglevel", "warning",
@@ -400,13 +412,13 @@ static int spawnStreamFfmpeg(uint32_t w, uint32_t h, const char *pix_fmt,
             "-i", "-",
             "-an",
             // Scale to an explicit resolution, or crop odd dims to even (see vf
-            // above) — libx264 + yuv420p require even W/H.
+            // above) — libx26x + yuv420p require even W/H.
             "-vf", vf,
-            "-c:v", "libx264",
+            "-c:v", vcodec,
             "-preset", g_stream_preset,
             "-pix_fmt", "yuv420p",
             "-g", gop_buf,
-            "-x264-params", "repeat-headers=1",
+            params_flag, params,
         };
         // Rate control. A set CRF (>=0) uses capped CRF — quality-targeted with
         // the configured bitrate as a ceiling (-maxrate/-bufsize). This fixes
@@ -421,7 +433,10 @@ static int spawnStreamFfmpeg(uint32_t w, uint32_t h, const char *pix_fmt,
             a.insert(a.end(), {"-b:v", g_stream_bitrate});
         // -tune is optional: "none"/empty omits it (best raw quality, but adds
         // latency since e.g. zerolatency's no-B-frames constraint is lifted).
-        if (!g_stream_tune.empty() && g_stream_tune != "none")
+        // film/stillimage are x264-only; libx265 hard-errors on them, so drop
+        // an unsupported tune under H.265 rather than fail the whole encoder.
+        if (!g_stream_tune.empty() && g_stream_tune != "none" &&
+            !(is_h265 && (g_stream_tune == "film" || g_stream_tune == "stillimage")))
             a.insert(a.end(), {"-tune", g_stream_tune});
 
         std::string out_url;
@@ -2131,6 +2146,8 @@ int main(int argc, char **argv)
             g_stream_preset = argv[++i];
         else if (strcmp(argv[i], "--stream-tune") == 0 && i + 1 < argc)
             g_stream_tune = argv[++i];
+        else if (strcmp(argv[i], "--stream-codec") == 0 && i + 1 < argc)
+            g_stream_codec = argv[++i];
         else if (strcmp(argv[i], "--cam-pitch") == 0 && i + 1 < argc)
             g_cam_pitch_deg = atof(argv[++i]);
         else if (strcmp(argv[i], "--out-width") == 0 && i + 1 < argc)
@@ -2177,8 +2194,9 @@ int main(int argc, char **argv)
             "                     --stream-bitrate; <0 = off / use ABR bitrate\n"
             "  --stream-gop N     GOP/keyframe interval in frames; shorter = faster\n"
             "                     reader startup/recovery (0 = auto: fps*2 RTSP, 1 UDP)\n"
-            "  --stream-preset P  libx264 -preset (default: ultrafast)\n"
-            "  --stream-tune T    libx264 -tune (default: zerolatency)\n"
+            "  --stream-preset P  libx264/libx265 -preset (default: ultrafast)\n"
+            "  --stream-tune T    libx264/libx265 -tune (default: zerolatency)\n"
+            "  --stream-codec C   h264 (libx264) or h265/hevc (libx265) (default: h264)\n"
             "  --cam-pitch DEG    Camera pitch in degrees (default: -80)\n"
             "  --out-width PX     Output frame width after stretch (default: 640)\n"
             "  --out-height PX    Output frame height after stretch (default: 480)\n"

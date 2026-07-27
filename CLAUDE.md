@@ -371,3 +371,19 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   has any `fog` symbol (`Scene.hh` has no accessor). Atmospheric haze to soften
   the horizon is not reachable from SDF; it needs a custom rendering plugin.
 - Quad sits at `z = -0.05` so it never z-fights the terrain (which is lower).
+
+## Session Addendum (2026-07-25) — RTSP encoder: H.264/H.265 selectable
+
+- `spawnStreamFfmpeg` (the ffmpeg child the bridge forks) now honours
+  **`--stream-codec {h264,h265,hevc}`** (`g_stream_codec`, default h264):
+  `-c:v libx264` vs `libx265`. The codec-params flag switches with it —
+  `-x264-params repeat-headers=1` for H.264, `-x265-params
+  repeat-headers=1:log-level=error` for H.265 (log-level suppresses x265's
+  multi-line banner; repeat-headers keeps SPS/PPS/VPS on every keyframe for
+  late RTSP joiners). Preset names are shared across x264/x265; the `-tune`
+  guard drops **film/stillimage** under x265 (libx265 hard-errors on them).
+- Only the RTSP push path is affected; the raw UDP-mpegts path also picks up
+  the codec since it shares the same argv builder.
+- **Requires a rebuild** (`cmake --build plugins/build`, or `make -j1
+  gz_image_bridge` per the big-TU OOM gotcha). Verified: the exact h265 argv
+  ffprobes as `hevc` at the requested size, clean stderr, OpenCV-decodable.
