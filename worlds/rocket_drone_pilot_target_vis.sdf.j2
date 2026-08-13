@@ -1,0 +1,225 @@
+<?xml version="1.0" ?>
+<!--
+  Visualization-only world for the pilot_controlled_target scenario. Gazebo
+  renders only. Drone pose is driven externally via ExternalPosePlugin
+  (UDP 9010). The target ("pilot_target") has NO predetermined trajectory:
+  it is manually steered by the operator (WASD / USB joystick) via the
+  standalone pilot_target.py tool, which streams poses to ExternalPosePlugin
+  (UDP 9016) with speed trim, pitch and heading-rate control.
+-->
+<sdf version="1.9">
+  <world name="pilot_target">
+    <gravity>0 0 0</gravity>
+    <physics name="realtime" type="ode">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+
+    <!-- Sky/sun follow the sky-brightness scalar (betaloop _sky_vars): lower
+         brightness = warmer, lower sun + darker sky (late afternoon). -->
+    <scene>
+      {%- if clouds %}
+      <sky>
+        <time>{{ sky_time | default(10) }}</time>
+        <clouds>
+          <speed>12</speed>
+          <direction>1.2</direction>
+          <humidity>{{ cloud_density }}</humidity>
+          <mean_size>{{ cloud_density }}</mean_size>
+        </clouds>
+      </sky>
+      {%- endif %}
+      <background>{{ background_color | default('0.5 0.7 0.9') }} 1</background>
+      <shadows>true</shadows>
+    </scene>
+
+    <light name="sun" type="directional">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>{{ sun_diffuse | default('0.95 0.85 0.7') }} 1</diffuse>
+      <specular>{{ sun_specular | default('0.3 0.25 0.2') }} 1</specular>
+      <attenuation>
+        <range>20000</range>
+        <constant>0.9</constant>
+        <linear>0.001</linear>
+        <quadratic>0.0001</quadratic>
+      </attenuation>
+      <direction>{{ sun_direction | default('-0.5 0.1 -0.9') }}</direction>
+    </light>
+
+    <!-- Original baylands terrain (unchanged position) -->
+    <include>
+      <uri>model://baylands_terrain</uri>
+      <name>baylands_terrain</name>
+      <pose>-100 150 -0.77 0 0 0</pose>
+    </include>
+    <!-- 5×5 tiled duplicates (~958m × 628m per tile) centred on original -->
+    {%- set tile_cx = -100 %}
+    {%- set tile_cy = 150 %}
+    {%- set tile_dx = 958 %}
+    {%- set tile_dy = 628 %}
+    {%- for ix in range(-2, 3) %}
+    {%- for iy in range(-2, 3) %}
+    {%- if ix != 0 or iy != 0 %}
+    <include>
+      <uri>model://baylands_terrain</uri>
+      <name>baylands_terrain_{{ ix + 2 }}_{{ iy + 2 }}</name>
+      <pose>{{ tile_cx + ix * tile_dx }} {{ tile_cy + iy * tile_dy }} -0.77 0 0 0</pose>
+    </include>
+    {%- endif %}
+    {%- endfor %}
+    {%- endfor %}
+
+    <!-- Large ground for the extended trajectory area. A 20 km UV-tiled quad
+         (betaloop ensure_ground_mesh) textured with the terrain's OWN grass
+         texture, so it follows the terrain theme (desert tan / lush green) via
+         apply_terrain_theme() and blends into the baylands tiles it abuts.
+         NOT an SDF plane: SDF has no UV-scale field, so a plane stretches one
+         texture across all 20 km; the tiling is baked into the mesh UVs.
+         Falls back to the old flat-colour plane if the mesh var is absent. -->
+    {%- if ground_mesh_uri %}
+    <model name="ground_plane">
+      <static>true</static>
+      <pose>0 0 -0.05 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <cast_shadows>false</cast_shadows>
+          <geometry>
+            <mesh><uri>{{ ground_mesh_uri }}</uri></mesh>
+          </geometry>
+          <material>
+            <ambient>0.9 0.9 0.9 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>{{ ground_texture_uri }}</albedo_map>
+                <roughness>0.95</roughness>
+                <metalness>0.0</metalness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    {%- else %}
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <cast_shadows>false</cast_shadows>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>20000 20000</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>{{ ground_color | default('0.76 0.60 0.42') }} 1</ambient>
+            <diffuse>{{ ground_color | default('0.76 0.60 0.42') }} 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    {%- endif %}
+
+    <!-- Pedestal — static vis-only cylinder marking the launch stand. Dimensions
+         track the Simulink pedestal (pedestal_radius / pedestal_height) so the
+         visual base lines up with the on-pedestal attitude physics. -->
+    {%- set _ped_r = pedestal_radius | default(0.5) %}
+    {%- set _ped_h = pedestal_height | default(0.30) %}
+    {%- if _ped_h > 0 %}
+    <model name="launch_pedestal">
+      <static>true</static>
+      <pose>0 0 {{ "%.4g"|format(_ped_h / 2.0) }} 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <cast_shadows>true</cast_shadows>
+          <geometry>
+            <cylinder>
+              <radius>{{ "%.4g"|format(_ped_r) }}</radius>
+              <length>{{ "%.4g"|format(_ped_h) }}</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.20 0.21 0.24 1</ambient>
+            <diffuse>0.33 0.34 0.38 1</diffuse>
+            <specular>0.25 0.25 0.28 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    {%- endif %}
+
+    <!-- Drone — visualization-only (included from vis model, no physics).
+         Heading configurable (player_heading_rad; default 0 = facing east). -->
+    <include>
+      <uri>{{ drone_vis_uri }}</uri>
+      <name>{{ drone_name }}</name>
+      <pose>0 0 0 0 0 {{ "%.6g"|format(player_heading_rad | default(0.0)) }}</pose>
+    </include>
+
+    <!-- Pilot-controlled target: pose driven by the standalone pilot_target.py
+         tool via ExternalPosePlugin (UDP 9016). Spawned at the initial E/N
+         offset + altitude, facing the initial heading (pilot_spawn_yaw). -->
+    <model name="pilot_target">
+      <static>false</static>
+      <pose>{{ "%.4g"|format(target_x) }} {{ "%.4g"|format(target_y) }} {{ "%.4g"|format(target_z) }} 0 0 {{ "%.6g"|format(pilot_spawn_yaw | default(0.0)) }}</pose>
+      <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
+        <listen_port>9016</listen_port>
+      </plugin>
+      <link name="geranium_link">
+        <visual name="visual">
+          {%- if target_primitive == 'sphere' %}
+          <geometry>
+            <sphere>
+              <radius>{{ target_radius }}</radius>
+            </sphere>
+          </geometry>
+          <material>
+            <ambient>{{ target_color }} 1</ambient>
+            <diffuse>{{ target_color }} 1</diffuse>
+            <specular>0.6 0.2 0.2 1</specular>
+          </material>
+          {%- else %}
+          <pose>{{ target_visual_pose }}</pose>
+          <geometry>
+            <mesh>
+              <uri>{{ target_mesh_uri }}</uri>
+              <scale>{{ target_scale }}</scale>
+            </mesh>
+          </geometry>
+          {%- if target_mesh_color %}
+          <!-- Flat colour override (target-mesh-color flag). An SDF material
+               fully replaces the .glb's baked-in PBR material in ogre2. Omitted
+               entirely when the colour is "default", so the mesh keeps its own. -->
+          <material>
+            <ambient>{{ target_mesh_color }} 1</ambient>
+            <diffuse>{{ target_mesh_color }} 1</diffuse>
+            <specular>0.3 0.3 0.3 1</specular>
+          </material>
+          {%- endif %}
+          {%- endif %}
+        </visual>
+      </link>
+    </model>
+
+    <gui fullscreen="0">
+      <camera name="user_camera">
+        <pose>-35 0 28 0 0.2 0</pose>
+        <view_controller>orbit</view_controller>
+        <projection_type>perspective</projection_type>
+      </camera>
+    </gui>
+  </world>
+</sdf>
