@@ -1,0 +1,21 @@
+# falcon_trainer materials
+newmtl red
+Ka 0.35 0.03 0.03
+Kd 0.78 0.07 0.06
+Ks 0.30 0.30 0.30
+Ns 60
+newmtl black
+Ka 0.03 0.03 0.03
+Kd 0.07 0.07 0.07
+Ks 0.20 0.20 0.20
+Ns 40
+newmtl white
+Ka 0.45 0.45 0.45
+Kd 0.92 0.92 0.92
+Ks 0.30 0.30 0.30
+Ns 60
+newmtl alu
+Ka 0.30 0.30 0.32
+Kd 0.62 0.63 0.66
+Ks 0.50 0.50 0.50
+Ns 90

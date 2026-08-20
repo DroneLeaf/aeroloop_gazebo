@@ -387,3 +387,23 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
 - **Requires a rebuild** (`cmake --build plugins/build`, or `make -j1
   gz_image_bridge` per the big-TU OOM gotcha). Verified: the exact h265 argv
   ffprobes as `hevc` at the requested size, clean stderr, OpenCV-decodable.
+
+## Session Addendum (2026-08-20) — models/falcon_trainer (generated OBJ target)
+
+- New target `models/falcon_trainer/`: red/black-checkerboard ~1.8 m Falcon
+  trainer RC plane. The mesh (`meshes/falcon_trainer.obj` + `.mtl`) is
+  **generated lofted-solid geometry, COMMITTED** (an asset like the .glbs;
+  regenerable via `generate_falcon.py` — tapered fuselage/wing/stab, rounded
+  leading edges from arc-profile ribs, checkers as separate red/black solids,
+  wheels 12-gon prisms; per-face winding auto-corrected vs the solid
+  centroid). Preview renders `preview_top.png` / `preview_threequarter.png`
+  sit in the model dir. Modeled DIRECTLY in the Gazebo body frame (+X nose, +Y span, +Z up,
+  AABB centred) so `model.sdf.j2`'s link pose is IDENTITY — unlike
+  shahed/stingjet's `-1.5708 0 0`. `model.sdf` is rendered + gitignored like
+  the others. Verified in ogre2: OBJ MTL materials ARE honoured (no textures
+  involved), and the `target_mesh_color` SDF override fully repaints them.
+- Headless capture note: the camera sensor `<save>` element wrote nothing on
+  this box; capture frames by subscribing —
+  `gz topic -e -n 1 --json-output -t /world/<w>/model/<m>/link/l/sensor/cam/image`
+  and base64-decode `data` (set DISPLAY + __EGL_VENDOR_LIBRARY_FILENAMES to
+  the NVIDIA glvnd json or EGL context creation fails headless).
