@@ -4,6 +4,15 @@ project(BetaflightPlugin)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Default to an optimised build. With no CMAKE_BUILD_TYPE CMake emits NO -O
+# flag at all (effectively -O0), which silently made gz_image_bridge's
+# per-frame work ~10x slower (a 1080p stretch went from ~3.5 ms to ~35 ms,
+# capping the whole video pipeline at ~27 fps — measured 2026-08-20).
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type (Release by default)" FORCE)
+endif()
+message(STATUS "Plugins build type: ${CMAKE_BUILD_TYPE}")
+
 find_package(gz-sim8 REQUIRED)
 find_package(gz-plugin2 REQUIRED COMPONENTS register)
 find_package(gz-math7 REQUIRED)

@@ -407,3 +407,42 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   `gz topic -e -n 1 --json-output -t /world/<w>/model/<m>/link/l/sensor/cam/image`
   and base64-decode `data` (set DISPLAY + __EGL_VENDOR_LIBRARY_FILENAMES to
   the NVIDIA glvnd json or EGL context creation fails headless).
+
+## Session Addendum (2026-08-20) — plugins were built at -O0; tracker feed capped at 27 fps
+
+- **Symptom:** leaf-tracker showed 26–27 FPS on a 1920×1080 rectilinear
+  wide-tracker feed with only the chase cam also enabled. **Not** the GPU (29%
+  busy), **not** the sim (RTF 0.998, the camera published at ~55 Hz): the 1080p
+  `gz_image_bridge` ran at 120% CPU and wrote SHM at exactly 27.2 Hz with a
+  rock-steady 37 ms per frame — a per-frame CPU cost, dropping every other
+  frame through its single-slot latest-wins buffer.
+- **Root cause 1 — no optimisation:** `plugins/CMakeLists.txt` set no
+  `CMAKE_BUILD_TYPE`, so CMake emitted NO `-O` flag (`flags.make` was just
+  `-std=gnu++17`) — every plugin (bridge, ExternalPosePlugin, …) was -O0.
+  **Root cause 2 — the per-pixel stretch:** the tracker cam's HFOV 88°/VFOV 47°
+  makes `compute_model_vars` render the sensor at **1920×865** (height follows
+  the FOV ratio), and the bridge stretches to the requested 1920×1080 on every
+  frame; `stretchFrameNearest` did two 64-bit divisions + a 3-byte `memcpy`
+  CALL per pixel — **35 ms/frame at -O0** (measured in isolation: 29 fps
+  ceiling = the observed cap), 3.7 ms at -O2.
+- **Fixes:** (1) CMakeLists now defaults `CMAKE_BUILD_TYPE` to **Release**
+  when unset (`-O3 -DNDEBUG`; message "Plugins build type: …" on configure —
+  re-run `cmake -S . -B build` once so an old cache picks it up). (2)
+  `stretchFrameNearest` is now IN-PLACE (`std::string &frame`, swaps with a
+  reused static scratch → zero steady-state allocation, no return copy), one
+  row `memcpy` per output row when widths match (the vertical-only case
+  above), x-index LUT otherwise — 1.8 ms even at -O0, output byte-identical
+  (verified old vs new on 1920×865→1080 and 640×480→1080). Rebuilt all plugins.
+- **Verified** in an isolated `GZ_PARTITION` bench world (1920×865 @60 Hz cam,
+  same geometry): new bridge SHM rate == source rate (100% of frames kept, 37%
+  CPU) vs 27/55 before. Running bridges keep the old binary — **re-Initialize
+  to pick up the rebuild.**
+- **Fidelity note for operators:** a VFOV that doesn't match the output aspect
+  means the tracker is fed NON-SQUARE pixels (865→1080 = 25% vertical
+  stretch). For square pixels pick a ratio in the camera card's Aspect Ratio
+  combo (16:9 derives VFOV ≈ 57° for HFOV 88°), which also removes the stretch
+  work entirely.
+- **Harness gotcha:** with `--no-display` the bridge still writes every raw
+  frame to STDOUT (legacy ffmpeg-pipe path). The launchers send it to
+  `/dev/null` (free); redirecting it to a file/pipe in a test makes the bridge
+  disk/pipe-bound (a bench run dropped to 0.5 Hz before this was spotted).
