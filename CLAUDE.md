@@ -446,3 +446,12 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   frame to STDOUT (legacy ffmpeg-pipe path). The launchers send it to
   `/dev/null` (free); redirecting it to a file/pipe in a test makes the bridge
   disk/pipe-bound (a bench run dropped to 0.5 Hz before this was spotted).
+
+## Session Addendum (2026-09-01) — sensor mount offsets in the drone vis templates
+
+- `models/{rocket_drone,thaqib_1_prototype,iris}_vis/model.sdf.j2`: the
+  `fpv_tracker_wide_cam` / `fpv_tracker_narrow_cam` / `fpv_thermal_cam` sensor
+  poses now add `{{ <cam>_x|default(0.0) }}` / `{{ <cam>_y|default(0.0) }}`
+  (body-FLU METRES from betaloop `compute_model_vars`; the mm + y-right→y-left
+  conversion happens there, not here) to the per-drone base mount x/y. The
+  iris keeps its 0.15/0.03 base. Zero offsets render byte-identical to before.
