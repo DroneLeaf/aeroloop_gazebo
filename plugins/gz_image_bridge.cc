@@ -157,6 +157,11 @@ static double g_warp_out_hfov_deg = 90.0;  // fisheye output horizontal FOV
 static double g_warp_virt_h = 0.0;         // unstretched fisheye height at out width
 static double g_warp_src_hfov_deg = 90.0;  // pinhole source horizontal FOV
 static uint32_t g_warp_src_w = 0, g_warp_src_h = 0;  // base (ss=1) source dims
+// Principal-point offset: where the lens optical axis (r = 0) sits relative
+// to the OUTPUT frame centre, in output pixels (+x right, +y down). Simulates
+// a decentred sensor — an intrinsic, so it lives here in the projection, not
+// in the sensor pose.
+static double g_warp_pp_dx = 0.0, g_warp_pp_dy = 0.0;
 
 static void warpFisheyeFromRect(std::string &frame,
                                 uint32_t src_w, uint32_t src_h,
@@ -185,7 +190,8 @@ static void warpFisheyeFromRect(std::string &frame,
         const double f_src = (src_w / 2.0)
             / tan((g_warp_src_hfov_deg * M_PI / 180.0) / 2.0);
         const double virt_h = g_warp_virt_h > 0 ? g_warp_virt_h : dst_h;
-        const double cx_d = (dst_w - 1) / 2.0, cy_d = (dst_h - 1) / 2.0;
+        const double cx_d = (dst_w - 1) / 2.0 + g_warp_pp_dx;
+        const double cy_d = (dst_h - 1) / 2.0 + g_warp_pp_dy;
         const double cx_s = (src_w - 1) / 2.0, cy_s = (src_h - 1) / 2.0;
         for (uint32_t y = 0; y < dst_h; y++) {
             // fold the vertical output stretch (virt_h -> dst_h) into the map
@@ -213,8 +219,9 @@ static void warpFisheyeFromRect(std::string &frame,
             }
         }
         lut_sw = src_w; lut_sh = src_h; lut_dw = dst_w; lut_dh = dst_h;
-        fprintf(stderr, "[warp] fisheye LUT %ux%u <- %ux%u (out hfov %.2f, src hfov %.2f)\n",
-                dst_w, dst_h, src_w, src_h, g_warp_out_hfov_deg, g_warp_src_hfov_deg);
+        fprintf(stderr, "[warp] fisheye LUT %ux%u <- %ux%u (out hfov %.2f, src hfov %.2f, pp %+.1f%+.1f)\n",
+                dst_w, dst_h, src_w, src_h, g_warp_out_hfov_deg, g_warp_src_hfov_deg,
+                g_warp_pp_dx, g_warp_pp_dy);
     }
 
     static std::string scratch;
@@ -2317,12 +2324,16 @@ int main(int argc, char **argv)
             g_osd_enabled = false;
         else if (strcmp(argv[i], "--warp-fisheye") == 0 && i + 1 < argc) {
             // c1,c2,c3,fun,out_hfov_deg,virt_h,src_hfov_deg,src_base_w,src_base_h
+            // [,pp_dx,pp_dy]  (principal-point offset, output px; optional)
             char funbuf[8] = {0};
             unsigned sw = 0, sh = 0;
-            if (sscanf(argv[++i], "%lf,%lf,%lf,%7[a-z],%lf,%lf,%lf,%u,%u",
-                       &g_warp_c1, &g_warp_c2, &g_warp_c3, funbuf,
-                       &g_warp_out_hfov_deg, &g_warp_virt_h,
-                       &g_warp_src_hfov_deg, &sw, &sh) == 9) {
+            int nf = sscanf(argv[++i], "%lf,%lf,%lf,%7[a-z],%lf,%lf,%lf,%u,%u,%lf,%lf",
+                            &g_warp_c1, &g_warp_c2, &g_warp_c3, funbuf,
+                            &g_warp_out_hfov_deg, &g_warp_virt_h,
+                            &g_warp_src_hfov_deg, &sw, &sh,
+                            &g_warp_pp_dx, &g_warp_pp_dy);
+            if (nf == 9 || nf == 11) {
+                if (nf == 9) { g_warp_pp_dx = 0.0; g_warp_pp_dy = 0.0; }
                 g_warp_fun = funbuf[0] == 's' ? 's' : funbuf[0] == 't' ? 't' : 'i';
                 g_warp_src_w = sw; g_warp_src_h = sh;
                 g_warp = true;
