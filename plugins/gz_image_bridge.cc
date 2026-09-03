@@ -139,6 +139,107 @@ static int         g_stream_gop     = 0;         // GOP/keyframe interval (frame
 static std::string g_stream_preset  = "ultrafast"; // libx264/libx265 -preset
 static std::string g_stream_tune    = "zerolatency"; // libx264/libx265 -tune
 static std::string g_stream_codec   = "h264";       // "h264" (libx264) or "h265"/"hevc" (libx265)
+
+// ── Fisheye-from-rectilinear warp ("--warp-fisheye") ─────────────────────────
+// gz's native wideanglecamera renders via a cubemap whose faces are point-
+// sampled and hard-capped at env_texture_size 2048 by sdformat, so sub-pixel
+// geometry speckles and sensor supersampling cannot reach it. In warp mode the
+// CAMERA is a plain rectilinear sensor (rendered at any size, supersampling
+// included) and this bridge produces the fisheye frame itself: each output
+// pixel maps through the gz lens model r = c1·f·fun(θ/c2 + c3) (f solved from
+// scale_to_hfov at the output HFOV) to a direction, then through the pinhole
+// into the source frame (bilinear). Output geometry is identical to the
+// native wideanglecamera; only the sampling quality differs.
+static bool   g_warp = false;
+static double g_warp_c1 = 1.0, g_warp_c2 = 1.0, g_warp_c3 = 0.0;
+static char   g_warp_fun = 'i';            // 'i'=id  's'=sin  't'=tan
+static double g_warp_out_hfov_deg = 90.0;  // fisheye output horizontal FOV
+static double g_warp_virt_h = 0.0;         // unstretched fisheye height at out width
+static double g_warp_src_hfov_deg = 90.0;  // pinhole source horizontal FOV
+static uint32_t g_warp_src_w = 0, g_warp_src_h = 0;  // base (ss=1) source dims
+
+static void warpFisheyeFromRect(std::string &frame,
+                                uint32_t src_w, uint32_t src_h,
+                                uint32_t dst_w, uint32_t dst_h,
+                                int ch_count)
+{
+    const size_t src_expected = static_cast<size_t>(src_w) * src_h * ch_count;
+    if (frame.size() < src_expected || dst_w == 0 || dst_h == 0 || ch_count <= 0)
+        return;
+
+    // LUT: per output pixel, the bilinear source sample (index + 8.8 weights).
+    struct Tap { uint32_t idx; uint16_t wx, wy; };  // idx = row*src_w+col, top-left
+    static std::vector<Tap> lut;
+    static uint32_t lut_sw = 0, lut_sh = 0, lut_dw = 0, lut_dh = 0;
+
+    if (lut_sw != src_w || lut_sh != src_h || lut_dw != dst_w || lut_dh != dst_h) {
+        lut.assign(static_cast<size_t>(dst_w) * dst_h, Tap{0, 0, 0});
+        const double th_e = (g_warp_out_hfov_deg * M_PI / 180.0) / 2.0;
+        auto fwd = [](double a, char fn) {
+            return fn == 's' ? sin(a) : fn == 't' ? tan(a) : a; };
+        auto inv = [](double r, char fn) {
+            return fn == 's' ? asin(r < -1 ? -1 : (r > 1 ? 1 : r))
+                 : fn == 't' ? atan(r) : r; };
+        const double f_fish = (dst_w / 2.0)
+            / (g_warp_c1 * fwd(th_e / g_warp_c2 + g_warp_c3, g_warp_fun));
+        const double f_src = (src_w / 2.0)
+            / tan((g_warp_src_hfov_deg * M_PI / 180.0) / 2.0);
+        const double virt_h = g_warp_virt_h > 0 ? g_warp_virt_h : dst_h;
+        const double cx_d = (dst_w - 1) / 2.0, cy_d = (dst_h - 1) / 2.0;
+        const double cx_s = (src_w - 1) / 2.0, cy_s = (src_h - 1) / 2.0;
+        for (uint32_t y = 0; y < dst_h; y++) {
+            // fold the vertical output stretch (virt_h -> dst_h) into the map
+            const double vy = (y - cy_d) * (virt_h / dst_h);
+            for (uint32_t x = 0; x < dst_w; x++) {
+                const double vx = x - cx_d;
+                const double r = sqrt(vx * vx + vy * vy);
+                double sx, sy;
+                if (r < 1e-9) { sx = cx_s; sy = cy_s; }
+                else {
+                    const double th = g_warp_c2
+                        * (inv(r / (g_warp_c1 * f_fish), g_warp_fun) - g_warp_c3);
+                    const double t = tan(th < 0 ? 0 : th);
+                    sx = cx_s + f_src * t * (vx / r);
+                    sy = cy_s + f_src * t * (vy / r);
+                }
+                if (sx < 0) sx = 0; if (sx > src_w - 1.001) sx = src_w - 1.001;
+                if (sy < 0) sy = 0; if (sy > src_h - 1.001) sy = src_h - 1.001;
+                const uint32_t ix = static_cast<uint32_t>(sx);
+                const uint32_t iy = static_cast<uint32_t>(sy);
+                Tap &tp = lut[static_cast<size_t>(y) * dst_w + x];
+                tp.idx = iy * src_w + ix;
+                tp.wx = static_cast<uint16_t>((sx - ix) * 256.0);
+                tp.wy = static_cast<uint16_t>((sy - iy) * 256.0);
+            }
+        }
+        lut_sw = src_w; lut_sh = src_h; lut_dw = dst_w; lut_dh = dst_h;
+        fprintf(stderr, "[warp] fisheye LUT %ux%u <- %ux%u (out hfov %.2f, src hfov %.2f)\n",
+                dst_w, dst_h, src_w, src_h, g_warp_out_hfov_deg, g_warp_src_hfov_deg);
+    }
+
+    static std::string scratch;
+    const size_t ch = static_cast<size_t>(ch_count);
+    scratch.resize(static_cast<size_t>(dst_w) * dst_h * ch);
+    const uint8_t *s = reinterpret_cast<const uint8_t *>(frame.data());
+    uint8_t *d = reinterpret_cast<uint8_t *>(&scratch[0]);
+    const size_t srow = static_cast<size_t>(src_w) * ch;
+    const size_t n = static_cast<size_t>(dst_w) * dst_h;
+    for (size_t i = 0; i < n; i++) {
+        const Tap &tp = lut[i];
+        const uint8_t *p00 = s + static_cast<size_t>(tp.idx) * ch;
+        const uint8_t *p10 = p00 + ch;
+        const uint8_t *p01 = p00 + srow;
+        const uint8_t *p11 = p01 + ch;
+        const uint32_t wx = tp.wx, wy = tp.wy;
+        const uint32_t w00 = (256 - wx) * (256 - wy), w10 = wx * (256 - wy);
+        const uint32_t w01 = (256 - wx) * wy,         w11 = wx * wy;
+        uint8_t *dp = d + i * ch;
+        for (size_t c = 0; c < ch; c++)
+            dp[c] = static_cast<uint8_t>(
+                (p00[c] * w00 + p10[c] * w10 + p01[c] * w01 + p11[c] * w11) >> 16);
+    }
+    frame.swap(scratch);
+}
 static int         g_stream_fd = -1;   // write-end of pipe to ffmpeg child
 static pid_t       g_stream_pid = -1;  // ffmpeg child PID
 
@@ -486,6 +587,75 @@ static void streamWriteFrame(int fd, const std::string &frame)
             return;
         }
     }
+}
+
+// Area-average downscale: each output pixel is the mean of its source-pixel
+// span. Used when the camera renders SUPERSAMPLED (larger than the output on
+// BOTH axes, e.g. a 2x sensor for fisheye anti-aliasing) — nearest-neighbor
+// decimation would keep every aliased speckle the supersample exists to
+// remove. Spans come from the exact rational mapping so any ratio works
+// (1708x912 -> 854x480 included). In-place via the same reused-scratch
+// pattern as stretchFrameNearest. Perf: ~4 adds/output px at 2x — small next
+// to the memcpy traffic even at -O0.
+static void downscaleFrameArea(std::string &frame,
+                               uint32_t src_w, uint32_t src_h,
+                               uint32_t dst_w, uint32_t dst_h,
+                               int ch_count)
+{
+    const size_t src_expected = static_cast<size_t>(src_w) * src_h * ch_count;
+    if (frame.size() < src_expected || dst_w == 0 || dst_h == 0 || ch_count <= 0)
+        return;
+
+    static std::string scratch;
+    static std::vector<uint32_t> x0_lut, x1_lut;
+    static uint32_t lut_sw = 0, lut_dw = 0;
+
+    const size_t ch      = static_cast<size_t>(ch_count);
+    const size_t src_row = static_cast<size_t>(src_w) * ch;
+    const size_t dst_row = static_cast<size_t>(dst_w) * ch;
+    scratch.resize(dst_row * dst_h);
+
+    if (lut_sw != src_w || lut_dw != dst_w) {
+        x0_lut.resize(dst_w);
+        x1_lut.resize(dst_w);
+        for (uint32_t x = 0; x < dst_w; x++) {
+            uint32_t a = static_cast<uint32_t>((static_cast<uint64_t>(x) * src_w) / dst_w);
+            uint32_t b = static_cast<uint32_t>((static_cast<uint64_t>(x + 1) * src_w) / dst_w);
+            if (b <= a) b = a + 1;
+            if (b > src_w) b = src_w;
+            x0_lut[x] = a;
+            x1_lut[x] = b;
+        }
+        lut_sw = src_w; lut_dw = dst_w;
+    }
+
+    const uint8_t *s = reinterpret_cast<const uint8_t *>(frame.data());
+    uint8_t *d = reinterpret_cast<uint8_t *>(&scratch[0]);
+    for (uint32_t y = 0; y < dst_h; y++) {
+        uint32_t ya = static_cast<uint32_t>((static_cast<uint64_t>(y) * src_h) / dst_h);
+        uint32_t yb = static_cast<uint32_t>((static_cast<uint64_t>(y + 1) * src_h) / dst_h);
+        if (yb <= ya) yb = ya + 1;
+        if (yb > src_h) yb = src_h;
+        uint8_t *drow = d + static_cast<size_t>(y) * dst_row;
+        for (uint32_t x = 0; x < dst_w; x++) {
+            const uint32_t xa = x0_lut[x], xb = x1_lut[x];
+            uint32_t acc[4] = {0, 0, 0, 0};
+            for (uint32_t sy = ya; sy < yb; sy++) {
+                const uint8_t *sp = s + static_cast<size_t>(sy) * src_row + xa * ch;
+                for (uint32_t sx = xa; sx < xb; sx++, sp += ch) {
+                    acc[0] += sp[0]; acc[1] += sp[1]; acc[2] += sp[2];
+                    if (ch == 4) acc[3] += sp[3];
+                }
+            }
+            const uint32_t n = (yb - ya) * (xb - xa);
+            uint8_t *dp = drow + static_cast<size_t>(x) * ch;
+            dp[0] = static_cast<uint8_t>(acc[0] / n);
+            dp[1] = static_cast<uint8_t>(acc[1] / n);
+            dp[2] = static_cast<uint8_t>(acc[2] / n);
+            if (ch == 4) dp[3] = static_cast<uint8_t>(acc[3] / n);
+        }
+    }
+    frame.swap(scratch);
 }
 
 // Stretch/copy source frame to a fixed output resolution using nearest-neighbor
@@ -2145,6 +2315,21 @@ int main(int argc, char **argv)
             ;  // accepted for backward compat, OSD is on by default
         else if (strcmp(argv[i], "--no-osd") == 0)
             g_osd_enabled = false;
+        else if (strcmp(argv[i], "--warp-fisheye") == 0 && i + 1 < argc) {
+            // c1,c2,c3,fun,out_hfov_deg,virt_h,src_hfov_deg,src_base_w,src_base_h
+            char funbuf[8] = {0};
+            unsigned sw = 0, sh = 0;
+            if (sscanf(argv[++i], "%lf,%lf,%lf,%7[a-z],%lf,%lf,%lf,%u,%u",
+                       &g_warp_c1, &g_warp_c2, &g_warp_c3, funbuf,
+                       &g_warp_out_hfov_deg, &g_warp_virt_h,
+                       &g_warp_src_hfov_deg, &sw, &sh) == 9) {
+                g_warp_fun = funbuf[0] == 's' ? 's' : funbuf[0] == 't' ? 't' : 'i';
+                g_warp_src_w = sw; g_warp_src_h = sh;
+                g_warp = true;
+            } else {
+                fprintf(stderr, "[warp] Bad --warp-fisheye spec: %s\n", argv[i]);
+            }
+        }
         else if (strcmp(argv[i], "--thermal") == 0)
             g_thermal = true;   // white-hot grayscale styling
         else if (strcmp(argv[i], "--mavlink-osd") == 0)
@@ -2395,8 +2580,28 @@ int main(int argc, char **argv)
         }
 
         if (meta_printed) {
-            stretchFrameNearest(frame, g_width, g_height,
-                                g_out_width, g_out_height, ch_count);
+            if (g_warp && g_warp_src_w > 0) {
+                // Fisheye-from-rectilinear: fold any supersample down to the
+                // base source dims (area-average = the anti-aliasing), then
+                // warp through the lens model into the output frame.
+                uint32_t sw = g_width, sh = g_height;
+                if (sw != g_warp_src_w || sh != g_warp_src_h) {
+                    downscaleFrameArea(frame, sw, sh,
+                                       g_warp_src_w, g_warp_src_h, ch_count);
+                    sw = g_warp_src_w; sh = g_warp_src_h;
+                }
+                warpFisheyeFromRect(frame, sw, sh,
+                                    g_out_width, g_out_height, ch_count);
+            }
+            // Supersampled camera (larger than the output on both axes) →
+            // area-average so the extra samples become anti-aliasing; any
+            // other mismatch keeps the historical nearest stretch.
+            else if (g_width > g_out_width && g_height >= g_out_height)
+                downscaleFrameArea(frame, g_width, g_height,
+                                   g_out_width, g_out_height, ch_count);
+            else
+                stretchFrameNearest(frame, g_width, g_height,
+                                    g_out_width, g_out_height, ch_count);
         }
 
         // White-hot thermal styling (dedicated thermal-cam instance). Applied
