@@ -172,6 +172,12 @@
     </link>
     <joint name="rotor_3_joint" type="revolute"><child>rotor_3</child><parent>base_link</parent><axis><xyz>0 0 1</xyz><limit><lower>-1e+16</lower><upper>1e+16</upper></limit><dynamics><damping>0.004</damping></dynamics></axis></joint>
 
+    <!-- In-process camera export to SHM: gz_image_bridge reads these segments with
+         shm-source instead of subscribing, so gz never serialises image frames
+         (measured: 2 tracker cams 45 -> 90 fps). See plugins/ShmCameraExportPlugin.cc -->
+    {%- if camera_shm_export | default(true) %}
+    <plugin filename="ShmCameraExportPlugin" name="gz::sim::systems::ShmCameraExportPlugin"/>
+    {%- endif %}
     <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
       <listen_port>9010</listen_port>
     </plugin>

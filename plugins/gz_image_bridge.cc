@@ -2310,6 +2310,114 @@ static void onImage(const gz::msgs::Image &_msg)
     g_cv.notify_one();
 }
 
+// ── --shm-source: read frames from the in-process ShmCameraExportPlugin ──
+// segment (/gz_cam_<model>_<sensor>_raw, same 64-byte ShmHeader) instead of
+// subscribing to the image topic. With NO gz-transport subscriber the sensors
+// system skips the protobuf/ZMQ publish that otherwise halves the camera rate
+// (measured 91 → 45 fps on two tracker cams; see the plugin header). The
+// reader is a seqlock: sequence before + after the copy must match.
+static bool g_shm_source = false;
+static char g_shm_src_fmt[16] = "rgb24";
+
+static void shmSourceThread(const std::string &raw_name)
+{
+    int fd = -1; uint8_t *ptr = nullptr; size_t size = 0;
+    bool announced = false;
+    std::string frame;
+    uint64_t last_seq = 0;
+    while (g_running)
+    {
+        if (!ptr)
+        {
+            fd = shm_open(raw_name.c_str(), O_RDONLY, 0);
+            if (fd < 0)
+            {
+                if (!announced) {
+                    fprintf(stderr, "[gz_image_bridge] --shm-source: waiting for %s\n",
+                            raw_name.c_str());
+                    announced = true;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                continue;
+            }
+            struct stat st{};
+            if (fstat(fd, &st) < 0 || static_cast<size_t>(st.st_size) < sizeof(ShmHeader))
+            {
+                close(fd); fd = -1;
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                continue;
+            }
+            size = static_cast<size_t>(st.st_size);
+            void *m = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
+            if (m == MAP_FAILED)
+            {
+                close(fd); fd = -1;
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                continue;
+            }
+            ptr = static_cast<uint8_t *>(m);
+            fprintf(stderr, "[gz_image_bridge] --shm-source: attached %s (%zu bytes)\n",
+                    raw_name.c_str(), size);
+        }
+        const auto *hdr = reinterpret_cast<const volatile ShmHeader *>(ptr);
+        if (hdr->magic != 0x475A4652u || size < sizeof(ShmHeader) + hdr->frame_size)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            continue;
+        }
+        const uint64_t s1 = hdr->sequence;
+        if (s1 == last_seq || s1 == 0)
+        {
+            std::this_thread::sleep_for(std::chrono::microseconds(300));
+            continue;
+        }
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const bool src_rgba = (hdr->channels == 4);
+        if (src_rgba)
+        {
+            // The export plugin writes native RGBA (a GPU DMA + one memcpy on
+            // the render thread); strip alpha HERE, in the bridge's own
+            // process, so the downstream frame stays rgb24 as it always was.
+            const uint8_t *s = ptr + sizeof(ShmHeader);
+            const size_t n = static_cast<size_t>(hdr->width) * hdr->height;
+            frame.resize(n * 3);
+            uint8_t *d = reinterpret_cast<uint8_t *>(&frame[0]);
+            for (size_t i = 0; i < n; i++) {
+                d[3*i] = s[4*i]; d[3*i+1] = s[4*i+1]; d[3*i+2] = s[4*i+2];
+            }
+        }
+        else
+            frame.assign(reinterpret_cast<const char *>(ptr + sizeof(ShmHeader)), hdr->frame_size);
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint64_t s2 = hdr->sequence;
+        if (s1 != s2) continue;                 // torn — the writer moved on; retry
+        last_seq = s1;
+        {
+            std::lock_guard<std::mutex> lk(g_mutex);
+            if (!g_meta_ready.load(std::memory_order_relaxed))
+            {
+                g_width  = hdr->width;
+                g_height = hdr->height;
+                if (src_rgba)
+                    std::strcpy(g_shm_src_fmt, "rgb24");
+                else
+                {
+                    std::memcpy(g_shm_src_fmt, const_cast<const char *>(hdr->pix_fmt), 15);
+                    g_shm_src_fmt[15] = 0;
+                }
+                g_pix_fmt = g_shm_src_fmt;
+                g_meta_ready.store(true, std::memory_order_release);
+            }
+            g_frame_data.swap(frame);
+            g_frame_sim_ns = hdr->sim_time_ns;
+            g_new_frame = true;
+        }
+        g_cv.notify_one();
+    }
+    if (ptr) munmap(ptr, size);
+    if (fd >= 0) close(fd);
+}
+
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 int main(int argc, char **argv)
@@ -2341,6 +2449,8 @@ int main(int argc, char **argv)
                 fprintf(stderr, "[warp] Bad --warp-fisheye spec: %s\n", argv[i]);
             }
         }
+        else if (strcmp(argv[i], "--shm-source") == 0)
+            g_shm_source = true;
         else if (strcmp(argv[i], "--thermal") == 0)
             g_thermal = true;   // white-hot grayscale styling
         else if (strcmp(argv[i], "--mavlink-osd") == 0)
@@ -2481,8 +2591,17 @@ int main(int argc, char **argv)
 #endif
 
     gz::transport::Node node;
+    std::thread shm_src_thread;
 
-    if (!node.Subscribe(topic, onImage))
+    if (g_shm_source)
+    {
+        // No image subscription at all — that is the whole point.
+        const std::string raw_name = shmNameFromTopic(topic) + "_raw";
+        shm_src_thread = std::thread(shmSourceThread, raw_name);
+        fprintf(stderr, "[gz_image_bridge] --shm-source: reading %s (no topic subscription)\n",
+                raw_name.c_str());
+    }
+    else if (!node.Subscribe(topic, onImage))
     {
         fprintf(stderr, "[gz_image_bridge] Failed to subscribe to %s\n",
                 topic.c_str());
@@ -2490,9 +2609,11 @@ int main(int argc, char **argv)
         if (osd_thread.joinable()) osd_thread.join();
         return 1;
     }
-
-    fprintf(stderr, "[gz_image_bridge] Subscribed to %s — waiting for frames\n",
-            topic.c_str());
+    else
+    {
+        fprintf(stderr, "[gz_image_bridge] Subscribed to %s — waiting for frames\n",
+                topic.c_str());
+    }
 
     // Subscribe to Gazebo pose topic for forward ground speed computation.
     // Parse image topic (/world/{W}/model/{M}/link/…/sensor/…/image) to
@@ -2703,5 +2824,6 @@ int main(int argc, char **argv)
     cleanupShmSegment(g_shm_osd);
 
     if (osd_thread.joinable()) osd_thread.join();
+    if (shm_src_thread.joinable()) shm_src_thread.join();
     return 0;
 }

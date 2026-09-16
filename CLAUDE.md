@@ -11,6 +11,7 @@ Gazebo Harmonic worlds, models, and C++ plugins for the drone SITL visualizer.
 | `BetaflightPlugin.cc` | In-Gazebo BF physics backend (when not using Simulink) |
 | `ViscousDragPlugin.cc` | Aerodynamic drag |
 | `RotorVisualPlugin.cc` | Spinning rotor visuals |
+| `ShmCameraExportPlugin.cc` | In-process camera → POSIX shm export (`/gz_cam_<model>_<sensor>_raw`); pairs with `gz_image_bridge --shm-source` so gz never serialises image frames |
 | `osd_font.h` | Embedded 8x8 IBM VGA/CP437 bitmap font |
 
 Build: `cd plugins/build && cmake .. && make` (or `build_plugin.sh`). Needs
@@ -455,3 +456,81 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   (body-FLU METRES from betaloop `compute_model_vars`; the mm + y-right→y-left
   conversion happens there, not here) to the per-drone base mount x/y. The
   iris keeps its 0.15/0.03 base. Zero offsets render byte-identical to before.
+
+## Session Addendum (2026-09-15) — ShmCameraExportPlugin + `gz_image_bridge --shm-source`
+
+- **Why:** gz-sensors publishes camera images over gz-transport (protobuf +
+  ZMQ/TCP) FROM THE RENDER THREAD. Measured on the 25-tile baylands world: two
+  tracker cams (1188×636 + 926×496 warp sources) render at **91 fps with no
+  image subscriber, 45 fps with any** — a null subscriber too. Not the GPU
+  (28 %), not the scene, not shadows, not the physics step (all measured).
+- **Plugin (model System, `ISystemConfigure` + `ISystemPostUpdate`):**
+  enumerates `components::Camera` under its model (optional `<sensor>` filter
+  children), computes each camera's due time from `sdf::Sensor::UpdateRate`
+  with gz-sensors' catch-up rule, and on `events::PostRender` (render thread)
+  does `scene->SensorByName(scoped)` → `Camera::Copy(Image)` → memcpy into
+  the shm segment + release fence + `sequence++`. Header = the bridge's
+  `ShmHeader` byte-for-byte (`static_assert`ed 64 B in both files). Rendering
+  camera name = `scopedName(entity, ecm, "::", false)`; a suffix fallback
+  scans `SensorByIndex` (the live name was `world::model::link::sensor`).
+- **Bridge:** `--shm-source` derives `shmNameFromTopic(topic) + "_raw"`,
+  spawns `shmSourceThread` (mmap, poll `sequence` every 300 µs, seqlock
+  read-verify, hands frames to the existing writer loop via `g_frame_data`),
+  and skips `node.Subscribe(topic)` — the pose-topic subscription stays. The
+  topic arg is still required (naming + pose topic parsing).
+- **The plugin RENDERS, it does not just copy:** gz-sensors skips rendering
+  any camera without an image-topic subscriber (camera_info subscribers don't
+  count — measured), so a copy-only export yields black frames. Per PostRender
+  pass: collect due cameras → ONE `Scene::PreRender()` → per camera
+  `Camera::Render(); Camera::PostRender()` → ONE `Scene::PostRender()` (the
+  gz-sensors pattern; `Camera::Update()` repeats the scene pair per camera and
+  the scene PostRender is a GPU flush/new-frame — cost 88→82 fps when doubled).
+  betaloop emits the `<plugin>` only in shm transport mode
+  (`camera_shm_export`) to avoid double renders.
+- **Async readback (the big win, 45→90 fps):** `Camera::Copy()` is a
+  synchronous ~450 MB/s staging download (7–9 ms/cam here). Instead:
+  `glGetTextureImage(Camera::RenderTextureGLId(), GL_RGBA)` into a 2-deep
+  PIXEL_PACK buffer ring + `glFenceSync` + **`glFlush()`** (mandatory — the
+  driver otherwise defers the download until the next wait), then on the NEXT
+  pass `glClientWaitSync` (≈0 ms) + `glMapBufferRange` + one memcpy of native
+  RGBA into the segment. Three traps, all measured: `GL_RGB` requests repack
+  synchronously (no gain); no `glFlush` → the fence wait executes the work;
+  RGBA→RGB on the render thread costs ~0.8 ms/cam, so the BRIDGE strips alpha
+  (`--shm-source` reader: `channels==4` → rgb24). GL entry points via
+  `eglGetProcAddress` (dlopen libEGL); PACK_ALIGNMENT/PBO binding saved +
+  restored around our calls; `SHM_EXPORT_SYNC=1` forces the Copy path
+  (pixel-identical reference for A/B). Stats every 5 s:
+  `[ShmCameraExport] <cam>: fps, render, readback [issue, fence-wait,
+  map+convert]` + `cycle: between passes / in plugin / outside`.
+- **Do NOT hold rendering smart pointers across frames in a system plugin** —
+  ogre2 is `dlclose`'d at shutdown and their control blocks then segfault on
+  release from the plugin dtor (`Address not mapped` under `~Plugin`). Look up
+  per frame; keep only names; build `rendering::Image` via its public ctor.
+- **Build:** CMake target `ShmCameraExportPlugin` (links gz-sim8, gz-plugin2,
+  gz-rendering8, rt). `find_package(gz-rendering8)` added.
+
+## Session Addendum (2026-09-16) — export plugin: due-flag race fixed, skip detector, shadows templated
+
+- **Race (cost the live 60/79 fps):** `Cam::due` is set on the sim thread
+  (PostUpdate, gz-sensors catch-up rule) and was cleared on the render
+  thread AFTER the camera rendered — a `due` raised mid-render was lost and
+  that camera skipped a whole pass. OnPostRender now consumes the flag when
+  it COLLECTS the due cameras (`c->due.store(false)` before any `Render()`),
+  so a period that elapses during the pass is picked up by the next one.
+  Keep it that way: never clear `due` after rendering.
+- **Skip detector:** each camera's 5 s stats line ends with
+  `due N / rendered M` (+ ` <-- SKIPPING` when N > M). `dueCount` is bumped
+  only on a false→true transition (`due.exchange(true)`), so it counts
+  periods, not steps. A healthy run shows N == M at the camera's fps.
+- **What contention does (measured, 6 busy cores):** render submission per
+  camera 2.0 → 3–4 ms — the ogre2 scene walk + driver work is CPU time on the
+  single render thread; the readback stays ~0.6 ms. Two cameras with shadows
+  = 12.3 ms/pass > the 11.1 ms step → 80 fps; shadows off = 7.45 ms → 88–89.
+- **World templates:** the 5 `rocket_drone_*_vis.sdf.j2` scene blocks carry
+  `<shadows>{{ 'true' if scene_shadows | default(true) else 'false' }}
+  </shadows>` and the same on the sun's `<cast_shadows>` (template default
+  true; betaloop passes False unless `--scene-shadows`). The terrain visual's
+  `cast_shadows=false` (2026-06-22) and the target visual's `true` are
+  untouched. Template comments name the flag WITHOUT dashes (XML forbids
+  `--` in comments — see the 2026-07-18 gotcha). `target_chase_cam.sdf.j2` is
+  not templated (its own rig, shadows on).

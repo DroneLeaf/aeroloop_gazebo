@@ -44,6 +44,19 @@ target_link_libraries(RotorVisualPlugin
     gz-math7::gz-math7
 )
 
+# In-process camera → SHM exporter (bypasses gz-transport image publishing;
+# see ShmCameraExportPlugin.cc header for the measured rationale).
+find_package(gz-rendering8 REQUIRED)
+add_library(ShmCameraExportPlugin SHARED ShmCameraExportPlugin.cc)
+set_property(TARGET ShmCameraExportPlugin PROPERTY CXX_STANDARD 17)
+target_link_libraries(ShmCameraExportPlugin
+  PRIVATE
+    gz-sim8::gz-sim8
+    gz-plugin2::gz-plugin2
+    gz-rendering8::gz-rendering8
+    rt
+)
+
 add_library(ViscousDragPlugin SHARED ViscousDragPlugin.cc)
 set_property(TARGET ViscousDragPlugin PROPERTY CXX_STANDARD 17)
 target_link_libraries(ViscousDragPlugin
