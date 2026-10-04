@@ -9,6 +9,42 @@
 -->
 <sdf version="1.9">
   <world name="fpv_moving_target">
+{%- macro target_link() %}
+      <link name="geranium_link">
+        <visual name="visual">
+          {%- if target_primitive == 'sphere' %}
+          <geometry>
+            <sphere>
+              <radius>{{ target_radius }}</radius>
+            </sphere>
+          </geometry>
+          <material>
+            <ambient>{{ target_color }} 1</ambient>
+            <diffuse>{{ target_color }} 1</diffuse>
+            <specular>0.6 0.2 0.2 1</specular>
+          </material>
+          {%- else %}
+          <pose>{{ target_visual_pose }}</pose>
+          <geometry>
+            <mesh>
+              <uri>{{ target_mesh_uri }}</uri>
+              <scale>{{ target_scale }}</scale>
+            </mesh>
+          </geometry>
+          {%- if target_mesh_color %}
+          <!-- Flat colour override (target-mesh-color flag). An SDF material
+               fully replaces the .glb's baked-in PBR material in ogre2. Omitted
+               entirely when the colour is "default", so the mesh keeps its own. -->
+          <material>
+            <ambient>{{ target_mesh_color }} 1</ambient>
+            <diffuse>{{ target_mesh_color }} 1</diffuse>
+            <specular>0.3 0.3 0.3 1</specular>
+          </material>
+          {%- endif %}
+          {%- endif %}
+        </visual>
+      </link>
+{%- endmacro %}
     <gravity>0 0 0</gravity>
     <physics name="realtime" type="ode">
       <!-- Vis-only world: the step only paces sensor rendering + external pose
@@ -144,6 +180,41 @@
     <!-- Pedestal — static vis-only cylinder marking the launch stand. Dimensions
          track the Simulink pedestal (pedestal_radius / pedestal_height) so the
          visual base lines up with the on-pedestal attitude physics. -->
+    {%- if fleet_drones %}
+    {#- Fleet mode (drone_stack): one pedestal per launcher, sized to carry
+        all of its bays at any pan, and one drone per container stack. Each
+        drone's model copy listens on its own pose/rotor ports (10xxx/11xxx),
+        so the include pose below only matters until its first UDP pose. #}
+    {%- for p in fleet_pedestals %}
+    <model name="{{ p.name }}">
+      <static>true</static>
+      <pose>{{ "%.4f"|format(p.x) }} {{ "%.4f"|format(p.y) }} {{ "%.4g"|format(p.height / 2.0) }} 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <cast_shadows>true</cast_shadows>
+          <geometry>
+            <cylinder>
+              <radius>{{ "%.4g"|format(p.radius) }}</radius>
+              <length>{{ "%.4g"|format(p.height) }}</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.20 0.21 0.24 1</ambient>
+            <diffuse>0.33 0.34 0.38 1</diffuse>
+            <specular>0.25 0.25 0.28 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    {%- endfor %}
+    {%- for d in fleet_drones %}
+    <include>
+      <uri>{{ d.uri }}</uri>
+      <name>{{ d.name }}</name>
+      <pose>{{ "%.4f"|format(d.x) }} {{ "%.4f"|format(d.y) }} 0 0 0 {{ "%.6g"|format(d.yaw) }}</pose>
+    </include>
+    {%- endfor %}
+    {%- else %}
     {%- set _ped_r = pedestal_radius | default(0.5) %}
     {%- set _ped_h = pedestal_height | default(0.30) %}
     {%- if _ped_h > 0 %}
@@ -176,6 +247,7 @@
       <name>{{ drone_name }}</name>
       <pose>0 0 0 0 0 {{ "%.6g"|format(player_heading_rad | default(0.0)) }}</pose>
     </include>
+    {%- endif %}
 
     <!-- Moving target: pose driven by betaloop's parametric trajectory thread
          via ExternalPosePlugin (UDP 9016). Spawned at s=0 of the trajectory. -->
@@ -185,41 +257,19 @@
       <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
         <listen_port>9016</listen_port>
       </plugin>
-      <link name="geranium_link">
-        <visual name="visual">
-          {%- if target_primitive == 'sphere' %}
-          <geometry>
-            <sphere>
-              <radius>{{ target_radius }}</radius>
-            </sphere>
-          </geometry>
-          <material>
-            <ambient>{{ target_color }} 1</ambient>
-            <diffuse>{{ target_color }} 1</diffuse>
-            <specular>0.6 0.2 0.2 1</specular>
-          </material>
-          {%- else %}
-          <pose>{{ target_visual_pose }}</pose>
-          <geometry>
-            <mesh>
-              <uri>{{ target_mesh_uri }}</uri>
-              <scale>{{ target_scale }}</scale>
-            </mesh>
-          </geometry>
-          {%- if target_mesh_color %}
-          <!-- Flat colour override (target-mesh-color flag). An SDF material
-               fully replaces the .glb's baked-in PBR material in ogre2. Omitted
-               entirely when the colour is "default", so the mesh keeps its own. -->
-          <material>
-            <ambient>{{ target_mesh_color }} 1</ambient>
-            <diffuse>{{ target_mesh_color }} 1</diffuse>
-            <specular>0.3 0.3 0.3 1</specular>
-          </material>
-          {%- endif %}
-          {%- endif %}
-        </visual>
-      </link>
-    </model>
+{{ target_link() }}    </model>
+    {%- for t in extra_targets | default([]) %}
+
+    <!-- Target {{ loop.index + 1 }}: same airframe, its own trajectory, flown by
+         the same betaloop thread via ExternalPosePlugin (UDP {{ t.port }}). -->
+    <model name="{{ t.name }}">
+      <static>false</static>
+      <pose>{{ "%.4g"|format(t.x) }} {{ "%.4g"|format(t.y) }} {{ "%.4g"|format(t.z) }} 0 0 {{ "%.4g"|format(t.yaw) }}</pose>
+      <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
+        <listen_port>{{ t.port }}</listen_port>
+      </plugin>
+{{ target_link() }}    </model>
+    {%- endfor %}
 
     <gui fullscreen="0">
       <camera name="user_camera">

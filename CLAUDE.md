@@ -534,3 +534,87 @@ events `struct <IhBB` = `time` u32, `value` i16, `type` u8, `number` u8. Notes:
   untouched. Template comments name the flag WITHOUT dashes (XML forbids
   `--` in comments — see the 2026-07-18 gotcha). `target_chase_cam.sdf.j2` is
   not templated (its own rig, shadows on).
+
+## Session Addendum (2026-10-03) — multiple moving_target targets
+
+- `rocket_drone_moving_target_vis.sdf.j2`: the target link is a Jinja macro
+  `target_link()`; after `moving_target`, a loop over `extra_targets` adds
+  `moving_target_<k>` models (own `ExternalPosePlugin` port 9050+k, same
+  airframe). Single-target render is XML-equal to before.
+- `gz_image_bridge --extra-target-model N` (repeatable): extra targets'
+  model poses cached from dynamic_pose/info; TARGET REACHED tests every
+  target's OBB (shared hit box), OSD bearing uses the nearest
+  (`nearestTarget`). Rebuilt (`cmake --build plugins/build --target
+  gz_image_bridge`).
+
+## Session Addendum (2026-10-03b) — ShmCameraExportPlugin: one render pass for every model
+
+- Fleet worlds load one plugin instance per drone model. Instances now
+  register in a process-wide registry (`Registry()`/`RegMutex()`); the FIRST
+  registered instance leads each PostRender pass: it collects every instance's
+  due cameras, brackets them with ONE `Scene::PreRender()`/`PostRender()`, and
+  renders/reads them all; other instances' handlers return immediately. The
+  mutex is held for the pass, and `~ShmCameraExportPlugin` unregisters under
+  it, so teardown can't race a render; a destroyed leader hands over to the
+  next instance. Stats lines are now `<model>/<sensor>` and the cycle line
+  reports the model count.
+- Measured (5 drones × wide+narrow, 854×480, warp fisheye, idle host): 32.5 →
+  38.2 fps per feed; gz time outside the plugin per pass 25.6 → 2.6 ms. The
+  single-drone world (one instance) behaves exactly as before.
+
+## Session Addendum (2026-10-04) — GPU fisheye warp in the export plugin + Ogre worker cap shim
+
+### GPU fisheye warp (`ShmCameraExportPlugin`)
+- **Why:** with warp-mode feeds the bridge's CPU warp was the per-feed cost
+  (28% CPU per bridge); measured 52.8 → 84.4 fps just by pausing the bridges.
+- **Template contract:** the drone vis templates' plugin element carries one
+  `<warp sensor="…" out_w="…" out_h="…">SPEC</warp>` child per warp-mode
+  camera (loop over betaloop's `shm_warp` list); SPEC is EXACTLY the
+  bridge's `--warp-fisheye` string (`common.warp_spec_string`, 9/11 fields).
+  Configure parses it null-safely; malformed → logged + ignored.
+- **Pass** (`GpuWarp`, render thread, right after the camera's render): a
+  fullscreen triangle into an RGBA8 output texture/FBO; LUT = RGBA16UI
+  texture (ix, iy, wx, wy) built by `BuildWarpLut` — the bridge's
+  `warpFisheyeFromRect` math line for line; fragment shader does the bridge's
+  8.8 INTEGER bilinear (`(Σ p·w) >> 16` on raw bytes). The final output
+  (not the source) goes through the async PBO readback. **Bit-exact** vs the
+  bridge: 0 of 409,920 pixels differ.
+- **GL traps (each cost a debug cycle):**
+  1. The camera RTT is `GL_SRGB8_ALPHA8` (0x8C43): `texelFetch` DECODES sRGB
+     even with `GL_SKIP_DECODE_EXT` on the texture or a sampler → dark
+     output. Fix: sample a `glTextureView(…, GL_RGBA8, …)` of it (requires
+     immutable storage — Ogre's RTT has it), plus our own NEAREST sampler.
+  2. Ogre leaves its unpack layout set (ROW_LENGTH/SKIP_*): the LUT upload
+     came out garbage. Reset ALL `GL_UNPACK_*` params for the upload and
+     restore them after.
+  3. Ogre caches GL state — every piece touched (program, FBOs, VAO,
+     viewport, active texture, texture+sampler on units 0/1, unpack buffer +
+     params, color mask, and the caps blend/depth/scissor/cull/stencil/
+     FRAMEBUFFER_SRGB/RASTERIZER_DISCARD/SAMPLE_MASK/ALPHA_TO_COVERAGE/
+     DEPTH_CLAMP/COLOR_LOGIC_OP/POLYGON_OFFSET_FILL/CLIP_DISTANCE0-7) is
+     saved and restored exactly; pending GL errors are drained first so the
+     end-of-pass check only sees ours.
+- **CPU fallback (never export an un-warped frame):** the bridge does NOT
+  warp these feeds, so if the GPU warp is unavailable/fails, or with
+  `SHM_EXPORT_SYNC=1` or `SHM_EXPORT_NO_GPU_WARP=1`, `CpuWarp` runs the same
+  LUT + integer bilinear on the render thread (~5.5 ms/frame under load —
+  a failure path, not a mode). Async ring slots remember whether they were
+  GPU-warped (`ringWarped`). Verified on an isolated bench: GPU, async CPU
+  fallback, sync CPU fallback and the bridge's CPU warp are byte-identical.
+  The stats line shows `gpu-warp+` vs `CPU-warp(fallback)+`. A source-size
+  mismatch DROPS frames with a log line (re-render the models).
+
+### Ogre worker cap (`plugins/OgreWorkerThreads.cc` → `libOgreWorkerThreads.so`)
+- LD_PRELOAD shim (CMake target `OgreWorkerThreads`) defining
+  `Ogre::PlatformInformation::getNumLogicalCores()`; returns
+  `$GZ_OGRE_WORKER_THREADS` when > 0, else the stock logical-core count.
+  gz-rendering8 `Ogre2Scene::CreateContext` passes that value as the scene
+  manager's worker count and is the only importer (verified with `nm -D`), so
+  the interposition only resizes Ogre's culling/update pool. Preloaded into
+  the gz process only, by betaloop `gz_spawn_env` (`--ogre-workers`, default
+  2). Measured numbers: root CLAUDE.md 2026-10-04.
+- Open finding: in a multi-model pass, the cameras of the model rendered
+  FIRST cost ~2–3.7 ms more each than the other model's (parallelizable CPU
+  work; follows the model, not the position — tested by reversing and
+  interleaving the render order). Cause not found (not the Forward+ grid
+  cache, heightmaps or the 6-pass GPU flush).

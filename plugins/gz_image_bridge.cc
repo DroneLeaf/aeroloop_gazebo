@@ -82,6 +82,7 @@ static uint32_t g_out_height = 480;
 // OSD configuration
 static bool g_osd_enabled = true;   // OSD always enabled
 static int  g_msp_port    = 5763;   // UART3 by default (5760 + uart_number)
+static std::string g_msp_host = "127.0.0.1";  // BF SITL host (fleet: the drone's IP)
 
 // MAVLink OSD mode (PX4 stack)
 static bool g_mavlink_osd  = false;  // --mavlink-osd: use MAVLink UDP instead of MSP TCP
@@ -122,6 +123,27 @@ struct TargetPose {
 };
 static std::mutex g_target_mutex;
 static TargetPose g_target_pose;
+
+// Targets 2..N (--extra-target-model, repeatable): simple models whose model
+// pose IS the target (no --target-link). They share the primary's hit box
+// (same airframe); TARGET REACHED fires on ANY target and the OSD bearing line
+// follows the NEAREST one. Poses guarded by g_target_mutex.
+static std::vector<std::string> g_extra_target_models;
+static std::vector<TargetPose> g_extra_target_poses;
+
+// Nearest valid target to the drone (primary when the drone pose is unknown).
+static TargetPose nearestTarget(double dx, double dy, double dz, bool dv)
+{
+    std::lock_guard<std::mutex> lk(g_target_mutex);
+    TargetPose best = g_target_pose;
+    if (!dv) return best;
+    auto d2 = [&](const TargetPose &t) {
+        return (t.x - dx) * (t.x - dx) + (t.y - dy) * (t.y - dy) + (t.z - dz) * (t.z - dz);
+    };
+    for (const auto &t : g_extra_target_poses)
+        if (t.valid && (!best.valid || d2(t) < d2(best))) best = t;
+    return best;
+}
 
 // Raw-frame stream — forks ffmpeg to encode H.264. Two output modes:
 //   * UDP mpegts   (--stream host:port)  : g_stream_rtsp = false
@@ -1155,7 +1177,7 @@ static void mspThread()
         struct sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_port   = htons(static_cast<uint16_t>(g_msp_port));
-        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        inet_pton(AF_INET, g_msp_host.c_str(), &addr.sin_addr);
 
         if (::connect(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0)
         {
@@ -1745,8 +1767,7 @@ static void renderOsd(uint8_t *frame, int fw, int fh, int ch_count)
           dx = g_drone_x; dy = g_drone_y; dz = g_drone_z;
           dyaw = g_drone_yaw; dv = g_drone_valid; }
 
-        TargetPose tp;
-        { std::lock_guard<std::mutex> lk(g_target_mutex); tp = g_target_pose; }
+        TargetPose tp = nearestTarget(dx, dy, dz, dv);
 
         if (dv && tp.valid) {
             double wx = tp.x - dx;
@@ -1967,8 +1988,7 @@ static void renderPx4Osd(uint8_t *frame, int fw, int fh, int ch_count)
           dx = g_drone_x; dy = g_drone_y; dz = g_drone_z;
           dyaw = g_drone_yaw; dv = g_drone_valid; }
 
-        TargetPose tp;
-        { std::lock_guard<std::mutex> lk(g_target_mutex); tp = g_target_pose; }
+        TargetPose tp = nearestTarget(dx, dy, dz, dv);
 
         if (dv && tp.valid) {
             double wx = tp.x - dx;
@@ -2059,10 +2079,20 @@ static void onPoseV(const gz::msgs::Pose_V &_msg)
             g_target_link.empty() ? std::string()
                                   : g_target_model + "::" + g_target_link;
 
+        // Extra targets: latest model pose each (static — only movers are sent).
+        static std::vector<TargetPose> ex_pose(g_extra_target_models.size());
+
         for (int i = 0; i < _msg.pose_size(); i++)
         {
             const auto &p = _msg.pose(i);
             const std::string &name = p.name();
+            for (size_t j = 0; j < g_extra_target_models.size(); j++) {
+                if (name == g_extra_target_models[j]) {
+                    ex_pose[j] = {p.position().x(), p.position().y(), p.position().z(),
+                                  p.orientation().w(), p.orientation().x(),
+                                  p.orientation().y(), p.orientation().z(), true};
+                }
+            }
             if (name == g_model_name) {
                 drone_x = p.position().x();
                 drone_y = p.position().y();
@@ -2141,6 +2171,7 @@ static void onPoseV(const gz::msgs::Pose_V &_msg)
             std::lock_guard<std::mutex> lk(g_target_mutex);
             g_target_pose = {tgt_x, tgt_y, tgt_z,
                              tgt_qw, tgt_qx, tgt_qy, tgt_qz, true};
+            g_extra_target_poses = ex_pose;
         }
 
         if (have_drone && have_target) {
@@ -2184,6 +2215,30 @@ static void onPoseV(const gz::msgs::Pose_V &_msg)
             bool inside = std::abs(lx) <= g_target_bbox_x * g_hit_box_scale
                        && std::abs(ly) <= g_target_bbox_y * g_hit_box_scale
                        && std::abs(lz) <= g_target_bbox_z * g_hit_box_scale;
+            // Same OBB test against every extra target (same airframe/hit box).
+            int hit_extra = -1;
+            for (size_t j = 0; j < ex_pose.size() && !inside; j++) {
+                const TargetPose &t = ex_pose[j];
+                if (!t.valid) continue;
+                double ex = drone_x - t.x, ey = drone_y - t.y, ez = drone_z - t.z;
+                double ax = ex * (1.0 - 2.0*(t.qy*t.qy + t.qz*t.qz))
+                          + ey * (2.0*(t.qx*t.qy + t.qw*t.qz))
+                          + ez * (2.0*(t.qx*t.qz - t.qw*t.qy));
+                double ay = ex * (2.0*(t.qx*t.qy - t.qw*t.qz))
+                          + ey * (1.0 - 2.0*(t.qx*t.qx + t.qz*t.qz))
+                          + ez * (2.0*(t.qy*t.qz + t.qw*t.qx));
+                double az = ex * (2.0*(t.qx*t.qz + t.qw*t.qy))
+                          + ey * (2.0*(t.qy*t.qz - t.qw*t.qx))
+                          + ez * (1.0 - 2.0*(t.qx*t.qx + t.qy*t.qy));
+                if (std::abs(ax) <= g_target_bbox_x * g_hit_box_scale
+                    && std::abs(ay) <= g_target_bbox_y * g_hit_box_scale
+                    && std::abs(az) <= g_target_bbox_z * g_hit_box_scale) {
+                    inside = true;
+                    hit_extra = static_cast<int>(j);
+                    lx = ax; ly = ay; lz = az;
+                    tgt_x = t.x; tgt_y = t.y; tgt_z = t.z;
+                }
+            }
             bool was_inside = g_target_reached.load(std::memory_order_relaxed);
 
             // Throttled debug: print proximity info once/sec when within 5 m
@@ -2202,7 +2257,9 @@ static void onPoseV(const gz::msgs::Pose_V &_msg)
             }
 
             if (inside && !was_inside) {
-                fprintf(stderr, "[gz_image_bridge] TARGET REACHED! drone=(%.2f,%.2f,%.2f) target=(%.2f,%.2f,%.2f) local=(%.2f,%.2f,%.2f)\n",
+                fprintf(stderr, "[gz_image_bridge] TARGET REACHED (%s)! drone=(%.2f,%.2f,%.2f) target=(%.2f,%.2f,%.2f) local=(%.2f,%.2f,%.2f)\n",
+                        hit_extra < 0 ? g_target_model.c_str()
+                                      : g_extra_target_models[hit_extra].c_str(),
                         drone_x, drone_y, drone_z, tgt_x, tgt_y, tgt_z, lx, ly, lz);
                 g_target_reached.store(true, std::memory_order_release);
             }
@@ -2462,6 +2519,8 @@ int main(int argc, char **argv)
             g_mavlink_port = atoi(argv[++i]);
         else if (strcmp(argv[i], "--msp-port") == 0 && i + 1 < argc)
             g_msp_port = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--msp-host") == 0 && i + 1 < argc)
+            g_msp_host = argv[++i];
         else if (strcmp(argv[i], "--stream") == 0 && i + 1 < argc)
             { g_stream_dest = argv[++i]; g_stream_rtsp = false; }
         else if (strcmp(argv[i], "--rtsp") == 0 && i + 1 < argc)
@@ -2500,6 +2559,8 @@ int main(int argc, char **argv)
             g_target_model = argv[++i];
         else if (strcmp(argv[i], "--target-link") == 0 && i + 1 < argc)
             g_target_link = argv[++i];
+        else if (strcmp(argv[i], "--extra-target-model") == 0 && i + 1 < argc)
+            g_extra_target_models.push_back(argv[++i]);
         else if (strcmp(argv[i], "--target-bbox") == 0 && i + 1 < argc) {
             // Parse "X,Y,Z" half-extents
             char *bbox_str = argv[++i];
@@ -2517,6 +2578,7 @@ int main(int argc, char **argv)
         fprintf(stderr,
             "Usage: %s <image_topic> [--msp-port PORT]\n"
             "  --msp-port N       MSP TCP port (default: 5763 = UART3)\n"
+            "  --msp-host IP      MSP TCP host (default: 127.0.0.1; fleet: the drone's IP)\n"
             "  --mavlink-osd      Use MAVLink UDP telemetry (PX4 stack) instead of MSP\n"
             "  --mavlink-port N   MAVLink UDP port (default: 14550)\n"
             "  --stream H:P       Stream raw (no OSD) H.264 mpegts over UDP to host:port\n"
@@ -2543,6 +2605,7 @@ int main(int argc, char **argv)
             "  --thermal          White-hot grayscale styling (simulated thermal cam)\n"
             "  --target-model N   SDF model name of the target (enables proximity detection)\n"
             "  --target-link L    Link within the model to track (for multi-link models)\n"
+            "  --extra-target-model N  Another target (repeatable): same hit box; OSD shows the nearest\n"
             "  --target-bbox X,Y,Z  Half-extents in metres (default: 0.792,1.047,0.186)\n"
             "  --hit-box-scale S  Uniform scale for hit box (default: 1.0)\n",
             argv[0]);

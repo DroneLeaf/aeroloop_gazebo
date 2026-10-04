@@ -174,13 +174,19 @@
          shm-source instead of subscribing, so gz never serialises image frames
          (measured: 2 tracker cams 45 -> 90 fps). See plugins/ShmCameraExportPlugin.cc -->
     {%- if camera_shm_export | default(true) %}
-    <plugin filename="ShmCameraExportPlugin" name="gz::sim::systems::ShmCameraExportPlugin"/>
+    <plugin filename="ShmCameraExportPlugin" name="gz::sim::systems::ShmCameraExportPlugin">
+      {#- GPU fisheye warp per warp-mode camera (betaloop gpu_warp_applies):
+          the spec is the bridge's warp-fisheye string, so both paths agree. #}
+      {%- for w in shm_warp | default([]) %}
+      <warp sensor="{{ w.sensor }}" out_w="{{ w.out_w }}" out_h="{{ w.out_h }}">{{ w.spec }}</warp>
+      {%- endfor %}
+    </plugin>
     {%- endif %}
     <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
-      <listen_port>9010</listen_port>
+      <listen_port>{{ pose_port | default(9010) }}</listen_port>
     </plugin>
     <plugin filename="RotorVisualPlugin" name="gz::sim::systems::RotorVisualPlugin">
-      <listen_port>9012</listen_port>
+      <listen_port>{{ rotor_port | default(9012) }}</listen_port>
       <max_velocity>100.0</max_velocity>
       <spin_dir_0>1</spin_dir_0>
       <spin_dir_1>1</spin_dir_1>
