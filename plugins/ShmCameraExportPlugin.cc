@@ -1076,16 +1076,24 @@ class ShmCameraExportPlugin
       s = _scene.SensorByName(_c.scoped);
       if (!s)
       {
+        // The scene names sensors "<model>::<link>::<sensor>" (no world
+        // prefix, unlike _c.scoped). Match THIS plugin's model: drones carry
+        // identically named cameras, and a bare "::<sensor>" suffix match
+        // handed every drone the first drone's camera.
         const std::string suffix = "::" + _c.shortName;
+        const std::string modelPrefix = this->modelName + "::";
+        const std::string modelInfix = "::" + this->modelName + "::";
         for (unsigned int i = 0; i < _scene.SensorCount(); ++i)
         {
           auto cand = _scene.SensorByIndex(i);
           if (!cand) continue;
           const std::string &n = cand->Name();
-          if (n == _c.shortName ||
-              (n.size() > suffix.size() &&
-               n.compare(n.size() - suffix.size(), suffix.size(), suffix) == 0))
-          { s = cand; break; }
+          const bool endsWithSensor = n.size() > suffix.size() &&
+              n.compare(n.size() - suffix.size(), suffix.size(), suffix) == 0;
+          const bool ofThisModel =
+              n.compare(0, modelPrefix.size(), modelPrefix) == 0 ||
+              n.find(modelInfix) != std::string::npos;
+          if (endsWithSensor && ofThisModel) { s = cand; break; }
         }
       }
       if (!s)
