@@ -186,9 +186,16 @@
         drone's model copy listens on its own pose/rotor ports (10xxx/11xxx),
         so the include pose below only matters until its first UDP pose. #}
     {%- for p in fleet_pedestals %}
+    {#- A launcher with a course is a MOVING rig: its pedestal is driven over
+        UDP (p.port) by betaloop's launcher-course thread, like a target. #}
     <model name="{{ p.name }}">
-      <static>true</static>
-      <pose>{{ "%.4f"|format(p.x) }} {{ "%.4f"|format(p.y) }} {{ "%.4g"|format(p.height / 2.0) }} 0 0 0</pose>
+      <static>{{ "false" if p.port else "true" }}</static>
+      <pose>{{ "%.4f"|format(p.x) }} {{ "%.4f"|format(p.y) }} {{ "%.4g"|format(p.height / 2.0) }} 0 0 {{ "%.6g"|format(p.yaw | default(0.0)) }}</pose>
+      {%- if p.port %}
+      <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
+        <listen_port>{{ p.port }}</listen_port>
+      </plugin>
+      {%- endif %}
       <link name="link">
         <visual name="visual">
           <cast_shadows>true</cast_shadows>
