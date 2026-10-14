@@ -57,6 +57,10 @@ target_link_libraries(ShmCameraExportPlugin
     rt
 )
 
+# LD_PRELOAD shim for the gz server: caps OgreNext's scene-manager worker
+# pool (stock = one per logical core). See OgreWorkerThreads.cc.
+add_library(OgreWorkerThreads SHARED OgreWorkerThreads.cc)
+
 add_library(ViscousDragPlugin SHARED ViscousDragPlugin.cc)
 set_property(TARGET ViscousDragPlugin PROPERTY CXX_STANDARD 17)
 target_link_libraries(ViscousDragPlugin
