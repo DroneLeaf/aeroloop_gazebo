@@ -89,9 +89,23 @@
     {%- set _ped_r = pedestal_radius | default(0.5) %}
     {%- set _ped_h = pedestal_height | default(0.30) %}
     {%- if _ped_h > 0 %}
+    {#- Single-drone mode with a launcher: the pedestal sits at the launcher's
+        pivot; a moving / rocking rig's pedestal is flown over UDP by betaloop's
+        launcher-course thread (single_pedestal.port). #}
+    {%- set _sp = single_pedestal | default(none) %}
     <model name="launch_pedestal">
+      {%- if _sp %}
+      <static>{{ "false" if _sp.port else "true" }}</static>
+      <pose>{{ "%.4f"|format(_sp.x) }} {{ "%.4f"|format(_sp.y) }} {{ "%.4g"|format(_ped_h / 2.0) }} 0 0 {{ "%.6g"|format(_sp.yaw) }}</pose>
+      {%- if _sp.port %}
+      <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
+        <listen_port>{{ _sp.port }}</listen_port>
+      </plugin>
+      {%- endif %}
+      {%- else %}
       <static>true</static>
       <pose>0 0 {{ "%.4g"|format(_ped_h / 2.0) }} 0 0 0</pose>
+      {%- endif %}
       <link name="link">
         <visual name="visual">
           <cast_shadows>true</cast_shadows>
@@ -115,7 +129,11 @@
     <include>
       <uri>{{ drone_vis_uri }}</uri>
       <name>{{ drone_name }}</name>
+      {%- if single_drone is defined and single_drone %}
+      <pose>{{ "%.4f"|format(single_drone.x) }} {{ "%.4f"|format(single_drone.y) }} 0 0 0 {{ "%.6g"|format(single_drone.yaw) }}</pose>
+      {%- else %}
       <pose>0 0 0 0 0 0</pose>
+      {%- endif %}
     </include>
 
     <!-- Wind target: selectable (balloon sphere / shahed / stingjet mesh) — pose
