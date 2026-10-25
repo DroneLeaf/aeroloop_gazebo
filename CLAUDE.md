@@ -1,5 +1,72 @@
 # CLAUDE.md — Agent Handover (`aeroloop_gazebo/`)
 
+## Session Addendum (2026-10-25) — return to the normal single-output pipeline
+
+- Supersedes prior recovery-rate notes: ShmCameraExportPlugin exports every due
+  sensor capture to its ORIGINAL `_raw` only. No stimulus child Cam, decimation,
+  recoveryPeriodNs, export_rate or trackerNextNs remains. Sensor UpdateRate is
+  the scheduling authority; shake control changes rendered poses, not rates.
+- Protocol v3: 25-double Parameters / 416-byte Packet, unchanged 136-byte Status
+  with captureHz (native measured simulation FPS) and cameraHz (configured rate).
+  The new controller refuses old versions. Relative live-pose / paired-camera
+  behavior and explicit owned-scene overrides remain intact.
+- Normal gz_image_bridge produces the shared clean RGB at source rate. The
+  presenter reads this existing RGB, never an extra stream. Raw/RGB timestamp
+  publication now marks in-progress writes with 0 and publishes completion last;
+  the bridge checks the timestamp around source conversion as well as sequence.
+  All native SHM names and 64-byte headers retain the original contract.
+- Release builds + CTest and unique-model/private-partition GPU regressions pass
+  for 240/360 source rates, normal-RGB presenter, pre/post ownership capture and
+  upward camera pairs with/without warp. See tracker-shake-lab/README.md.
+
+## Session Addendum (2026-10-24) — relative attached-camera shake
+
+- Recovery protocol v2 keeps the same packet sizes; Configure flags=0 follows
+  the live camera / target. Only `OverrideScene=1` (owned scene) permits absolute
+  pose, HFOV or target overrides. Reject v1 to prevent a new UI from activating
+  an old exporter with the previous absolute default pose.
+- Attached mode reads live reference WorldPose and actual projection each pass,
+  applying one relative quaternion to the selected cameras while retaining their
+  relative mounts. No camera pose writes at rest, no target pose/scale or optics
+  writes in attached mode. Target / rig ExternalPosePlugin motion remains live.
+- Never recursively duplicate a `_stimulus` Cam when wildcard control matches
+  all sensors: auxiliary outputs have empty shortName and bypass recovery writes.
+- `tracker-shake-lab/smoke_attached.py [--warp]` verifies byte-identical takeover
+  of wide + oppositely rolled narrow + final GS RGB, external scene motion,
+  triggered relative shake and exact return after burst/Reset/Release. All
+  scenes / UDP ports / process groups are isolated from the running simulation.
+
+## Session Addendum (2026-10-23) — optional Tracker Shake Lab control
+
+- `plugins/RecoveryMotion.hh` defines the deterministic motion / fixed-size v1
+  little-endian wire contract; `RecoveryControl.hh` is its nonblocking localhost
+  UDP control, default port 18950 (`GZ_RECOVERY_PORT`, 0 disables). Configure /
+  trigger / reset / release / poll use an owner id and a 2s heartbeat lease.
+  Duplicate triggers are remembered, and another live owner is rejected.
+- `ShmCameraExportPlugin`'s leader polls it on the render thread. The selected
+  camera's world pose / pinhole HFOV and the selected target's render pose /
+  scale are temporarily overridden for Capture, then restored. Only local
+  rendering pointers are held, respecting the ogre2 unload invariant. Target
+  navigation / IMU / pose topics remain the real sim values, so this mode is
+  specifically a visual-tracker stimulus, not a flight dynamics experiment.
+- Active capture runs at renderHz; `_stimulus` gets every native output frame
+  and `_raw` is timestamp-decimated at trackerHz. The ordinary exporter path
+  remains idle / unchanged without an owner. Per-camera atomic override periods
+  cross into PostUpdate; the existing consume-due-before-render invariant stays.
+  Optional SDF `<export_rate>` supplies an initial exporter rate for the owned
+  scene, without changing ordinary drone templates.
+- Fisheye GPU-warp geometry is inverted using the existing warp spec and stretch.
+  For paired sources the command sensor is `*<reference sensor>`; all cameras
+  share one physical shake and target pose while preserving relative mounts.
+  `_stimulus` readers check both sequence and a nonzero timestamp around each
+  copy; WriteShm clears timestamp during writes. Frame names / 64-byte header
+  remain compatible with existing consumers.
+- Build: `cmake --build aeroloop_gazebo/plugins/build --target
+  ShmCameraExportPlugin -j1`, then restart the Gazebo server. The new app's
+  `build.sh` also builds the native presenter and runs motion tests. The runtime
+  smoke verifies actual coloured target pixels, calibrated displacement,
+  camera shake, separate rates and lease expiry in a private Gazebo partition.
+
 Gazebo Harmonic worlds, models, and C++ plugins for the drone SITL visualizer.
 
 ## Plugins (`plugins/`)

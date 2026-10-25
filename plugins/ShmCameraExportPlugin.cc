@@ -58,6 +58,8 @@
 #include <gz/rendering/RenderingIface.hh>
 #include <gz/rendering/Scene.hh>
 #include <gz/rendering/Camera.hh>
+#include <gz/rendering/Visual.hh>
+#include "RecoveryControl.hh"
 #include <gz/rendering/Image.hh>
 #include <gz/rendering/PixelFormat.hh>
 #include <gz/common/Event.hh>
@@ -437,6 +439,7 @@ class ShmCameraExportPlugin
     public ISystemConfigure,
     public ISystemPostUpdate
 {
+  struct RateSample {uint64_t seq=0;int64_t ns=0;double rate=0;};
   struct Cam
   {
     Entity entity{kNullEntity};
@@ -446,6 +449,7 @@ class ShmCameraExportPlugin
     std::string resolvedName;  // rendering camera name once found (looked up per frame)
     int64_t periodNs{0};       // 0 = every render pass
     int64_t nextDueNs{0};
+    RateSample captureRate;
     std::atomic<bool> due{false};
     std::atomic<int64_t> dueSimNs{0};
     // sync-fallback copy buffer (allocated by libgz-rendering core, stays loaded)
@@ -581,7 +585,8 @@ class ShmCameraExportPlugin
         _info.simTime).count();
     for (auto &c : this->cams)
     {
-      if (c->periodNs <= 0)
+      const int64_t period=c->periodNs;
+      if (period <= 0)
       {
         c->dueSimNs.store(simNs, std::memory_order_relaxed);
         if (!c->due.exchange(true, std::memory_order_acq_rel))
@@ -590,7 +595,9 @@ class ShmCameraExportPlugin
       }
       if (simNs >= c->nextDueNs)
       {
-        while (c->nextDueNs <= simNs) c->nextDueNs += c->periodNs;
+        // Reschedule a delayed pass without replaying a backlog.
+        if(c->nextDueNs<simNs-period) c->nextDueNs=simNs;
+        while (c->nextDueNs <= simNs) c->nextDueNs += period;
         c->dueSimNs.store(simNs, std::memory_order_relaxed);
         if (!c->due.exchange(true, std::memory_order_acq_rel))
           c->dueCount.fetch_add(1, std::memory_order_relaxed);
@@ -643,6 +650,11 @@ class ShmCameraExportPlugin
     if (reg.empty() || reg.front() != this) return;      // not the leader
     rendering::ScenePtr scn = rendering::sceneFromFirstRenderEngine();
     if (!scn) return;
+    auto &lab=Recovery();
+    int64_t latestNs=0;
+    for(auto *inst:reg) for(auto &c:inst->cams)
+      latestNs=std::max(latestNs,c->dueSimNs.load(std::memory_order_relaxed));
+    lab.tick(latestNs*1e-9);
     const bool useAsync = !this->forceSync && g_gl.Load();
     // Cycle bookkeeping: interval between PostRender passes vs. our own time
     // in them — the difference is what gz spends per cycle outside the plugin.
@@ -674,10 +686,105 @@ class ShmCameraExportPlugin
       }
     }
     if (!due.empty()) scn->PreRender();
+    Cam *referenceCam=nullptr;
+    rendering::CameraPtr referenceRendering;
+    for(auto *inst:reg) if(lab.enabled && inst->modelName==lab.config.model)
+      for(auto &candidate:inst->cams) if(candidate->shortName==lab.referenceSensor()) {
+        referenceCam=candidate.get();referenceRendering=inst->FindCamera(*candidate,*scn);
+      }
+    const math::Pose3d referencePose=referenceRendering?referenceRendering->WorldPose():math::Pose3d::Zero;
     for (auto &[inst, cptr, cam, simNs] : due)
     {
       Cam &c_ = *cptr;
       const auto t0 = std::chrono::steady_clock::now();
+      // All rendering pointers stay local to this pass (ogre2 unload rule).
+      const math::Pose3d savedCamera=cam->WorldPose();
+      const auto savedHFOV=cam->HFOV();
+      rendering::VisualPtr testTarget;
+      math::Pose3d savedTarget;
+      math::Vector3d savedScale;
+      bool targetChanged=false, cameraChanged=false;
+      const bool testing=lab.matches(inst->modelName,c_.shortName);
+      if(testing && referenceRendering) {
+        const auto &p=lab.config.p;
+        const bool overrideScene=(lab.config.reserved & recovery::OverrideScene)!=0;
+        const double t=simNs*1e-9;
+        const auto s=lab.motion.sample(lab.start<0 ? -1 : t-lab.start);
+        const double referenceWidth=overrideScene ? p.referenceWidth
+            : referenceCam->hasWarp ? referenceCam->warp.outW : referenceRendering->ImageWidth();
+        const double referenceHfov=overrideScene ? p.referenceHfovDeg
+            : referenceCam->hasWarp ? referenceCam->warp.outHfovDeg : referenceRendering->HFOV().Degree();
+        const double referenceF=referenceWidth/(2*std::tan(referenceHfov*recovery::Pi/360));
+        if(overrideScene && !c_.hasWarp && &c_==referenceCam)
+          cam->SetHFOV(math::Angle(p.referenceHfovDeg*recovery::Pi/180));
+        // Invert the actual output projection, including the existing fisheye
+        // warp's vertical stretch. Pixel motion is in the reference-width grid.
+        auto pixelRay=[&](double u,double v) {
+          if(!referenceCam || !referenceCam->hasWarp) return math::Vector3d(1,-u/referenceF,-v/referenceF).Normalized();
+          const auto &w=referenceCam->warp;
+          const double ratio=w.outW/referenceWidth;
+          const double vx=u*ratio,vy=v*ratio*(w.virtH>0?w.virtH/w.outH:1);
+          const double r=std::hypot(vx,vy);
+          if(r<1e-9) return math::Vector3d::UnitX;
+          const double edge=w.outHfovDeg*recovery::Pi/360/w.c2+w.c3;
+          const double edgeR=w.fun=='s'?std::sin(edge):w.fun=='t'?std::tan(edge):edge;
+          const double a=r/(w.outW/2.0)*edgeR;
+          const double inv=w.fun=='s'?std::asin(std::clamp(a,-1.0,1.0)):w.fun=='t'?std::atan(a):a;
+          const double theta=std::clamp(w.c2*(inv-w.c3),0.0,recovery::Pi/2-0.001);
+          return math::Vector3d(std::cos(theta),-std::sin(theta)*vx/r,-std::sin(theta)*vy/r);
+        };
+        math::Vector3d ray=pixelRay(s.u,s.v);
+        math::Quaterniond shake;shake.SetFrom2Axes(ray,math::Vector3d::UnitX);
+        shake=shake*math::Quaterniond(s.roll,0,0);
+        const math::Quaterniond base=overrideScene
+            ? math::Quaterniond(0,-p.pitchDeg*recovery::Pi/180,p.yawDeg*recovery::Pi/180) : referencePose.Rot();
+        const math::Vector3d origin=overrideScene
+            ? math::Vector3d(p.cameraX,p.cameraY,p.cameraZ) : referencePose.Pos();
+        const auto relativeMount=referencePose.Rot().Inverse()*savedCamera.Rot();
+        const auto mountOffset=referencePose.Rot().RotateVectorReverse(savedCamera.Pos()-referencePose.Pos());
+        // At rest, don't even round-trip the camera pose. Mounted roll, upward
+        // pitch, gimbal/drone motion, optics and target trajectory remain live.
+        cameraChanged=overrideScene || s.u!=0 || s.v!=0 || s.roll!=0;
+        if(cameraChanged)
+          cam->SetWorldPose(math::Pose3d(origin+(base*shake).RotateVector(mountOffset),base*shake*relativeMount));
+        auto uv=overrideScene ? recovery::target(p,t-lab.epoch) : std::array<double,2>{0,0};
+        const auto targetRay=pixelRay(uv[0],uv[1]);
+        const math::Vector3d relative=targetRay*(p.targetDistance/targetRay.X());
+        for(unsigned vi=0; lab.config.target[0] && vi<scn->VisualCount();++vi) {
+          auto v=scn->VisualByIndex(vi);
+          const std::string name=v->Name(),suffix="::"+std::string(lab.config.target);
+          if(name==lab.config.target || (name.size()>suffix.size() &&
+               name.compare(name.size()-suffix.size(),suffix.size(),suffix)==0)) {testTarget=v;break;}
+        }
+        if(testTarget && overrideScene) {
+          savedTarget=testTarget->WorldPose();savedScale=testTarget->LocalScale();
+          testTarget->SetWorldPose(math::Pose3d(origin+base.RotateVector(relative),savedTarget.Rot()));
+          testTarget->SetLocalScale(savedScale*p.targetScale);
+          targetChanged=true;
+        } else if(testTarget) {
+          const auto pos=base.RotateVectorReverse(testTarget->WorldPose().Pos()-origin);
+          if(pos.X()>0) {
+            if(referenceCam->hasWarp) {
+              const auto &w=referenceCam->warp;
+              const double r=std::hypot(pos.Y(),pos.Z());
+              const double theta=std::atan2(r,pos.X())/w.c2+w.c3;
+              const double edge=w.outHfovDeg*recovery::Pi/360/w.c2+w.c3;
+              auto f=[&](double a){return w.fun=='s'?std::sin(a):w.fun=='t'?std::tan(a):a;};
+              const double radius=referenceWidth/2*f(theta)/f(edge);
+              if(r>1e-9) uv={-radius*pos.Y()/r,-radius*pos.Z()/r*(w.virtH>0?w.outH/w.virtH:1)};
+            } else uv={-referenceF*pos.Y()/pos.X(),-referenceF*pos.Z()/pos.X()};
+          }
+        }
+        auto &st=lab.status;
+        if(&c_==referenceCam) {
+        st.reserved=testTarget ? 1 : 0;
+        st.u=s.u*p.pixelScale;st.v=s.v*p.pixelScale;
+        st.targetU=uv[0]*p.pixelScale;st.targetV=uv[1]*p.pixelScale;
+        st.focal=referenceF;st.width=c_.hasWarp?c_.warp.outW:cam->ImageWidth();
+        st.height=c_.hasWarp?c_.warp.outH:cam->ImageHeight();
+        st.hfovDeg=c_.hasWarp?c_.warp.outHfovDeg:cam->HFOV().Degree();
+        }
+      }
       // gz-sensors does not render a camera without an image subscriber
       // (verified: raw export stayed black until one attached) — so render.
       cam->Render();
@@ -722,6 +829,11 @@ class ShmCameraExportPlugin
                          cam->ImageHeight(), cam->ImageFormat(), simNs);
       }
       const auto t2 = std::chrono::steady_clock::now();
+      if(cameraChanged) {
+        cam->SetWorldPose(savedCamera);
+        cam->SetHFOV(savedHFOV);
+      }
+      if(targetChanged) {testTarget->SetWorldPose(savedTarget);testTarget->SetLocalScale(savedScale);}
       c->renderUs += std::chrono::duration<double, std::micro>(t1 - t0).count();
       c->copyUs   += std::chrono::duration<double, std::micro>(t2 - t1).count();
       c->nStat++;
@@ -1176,6 +1288,7 @@ class ShmCameraExportPlugin
     uint8_t *dst = _c.ptr + sizeof(ShmHeader);
     const size_t n = static_cast<size_t>(_w) * _h;
     if (hdr->frame_size < n * 3) return;
+    __atomic_store_n(&hdr->timestamp_ns,uint64_t{0},__ATOMIC_RELEASE);
     for (size_t i = 0; i < n; ++i)
     {
       dst[3 * i]     = _rgba[4 * i];
@@ -1183,25 +1296,40 @@ class ShmCameraExportPlugin
       dst[3 * i + 2] = _rgba[4 * i + 2];
     }
     __atomic_thread_fence(__ATOMIC_RELEASE);
-    hdr->timestamp_ns = static_cast<uint64_t>(
-        std::chrono::steady_clock::now().time_since_epoch().count());
     hdr->sim_time_ns = static_cast<uint64_t>(_simNs);
     hdr->sequence = ++_c.seq;
+    __atomic_store_n(&hdr->timestamp_ns,static_cast<uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count()),__ATOMIC_RELEASE);
   }
 
   private: void WriteShm(Cam &_c, const uint8_t *_data, size_t _n,
                          uint32_t _w, uint32_t _h, rendering::PixelFormat _f,
                          int64_t _simNs)
   {
+    auto &lab=Recovery();
+    const double rate=MeasureRate(_c.seq,_simNs,_c.captureRate);
+    if(lab.matches(this->modelName,_c.shortName) && _c.shortName==lab.referenceSensor()) {
+      lab.status.captureHz=rate;
+      lab.status.cameraHz=_c.periodNs>0 ? 1e9/_c.periodNs : 0;
+    }
     if (!_c.ptr && !this->OpenShm(_c, _w, _h, _f)) return;
     auto *hdr = reinterpret_cast<ShmHeader *>(_c.ptr);
+    // A zero timestamp marks an in-progress copy for normal camera readers.
+    __atomic_store_n(&hdr->timestamp_ns,0,__ATOMIC_RELEASE);
     std::memcpy(_c.ptr + sizeof(ShmHeader), _data, std::min<size_t>(_n, hdr->frame_size));
     __atomic_thread_fence(__ATOMIC_RELEASE);
-    hdr->timestamp_ns = static_cast<uint64_t>(
-        std::chrono::steady_clock::now().time_since_epoch().count());
     hdr->sim_time_ns = static_cast<uint64_t>(_simNs);
     hdr->sequence = ++_c.seq;
+    __atomic_store_n(&hdr->timestamp_ns,static_cast<uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count()),__ATOMIC_RELEASE);
   }
+
+  private: static double MeasureRate(uint64_t seq,int64_t ns,RateSample &r) {
+    if(ns<r.ns || seq<r.seq)r={};
+    if(ns-r.ns>=1000000000) {r.rate=(seq-r.seq)*1e9/(ns-r.ns);r.ns=ns;r.seq=seq;}
+    return r.rate; // simulation-time rate; wall-time is measured by the presenter
+  }
+  private: static recovery::Control &Recovery() {static recovery::Control c;return c;}
 
   private: void CloseShm(Cam &_c)
   {
