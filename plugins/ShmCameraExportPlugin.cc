@@ -434,6 +434,26 @@ static std::vector<uint16_t> BuildWarpLut(const WarpSpec &_w)
   return lut;
 }
 
+// Camera-frame ray (+X forward) through pixel (u, v) of the shake lab's
+// reference grid: pinhole, or the inverse of the existing fisheye warp
+// including its vertical stretch (_w null = pinhole).
+static math::Vector3d PixelRay(const WarpSpec *_w, double _referenceWidth,
+                               double _referenceF, double u, double v)
+{
+  if(!_w) return math::Vector3d(1,-u/_referenceF,-v/_referenceF).Normalized();
+  const auto &w=*_w;
+  const double ratio=w.outW/_referenceWidth;
+  const double vx=u*ratio,vy=v*ratio*(w.virtH>0?w.virtH/w.outH:1);
+  const double r=std::hypot(vx,vy);
+  if(r<1e-9) return math::Vector3d::UnitX;
+  const double edge=w.outHfovDeg*recovery::Pi/360/w.c2+w.c3;
+  const double edgeR=w.fun=='s'?std::sin(edge):w.fun=='t'?std::tan(edge):edge;
+  const double a=r/(w.outW/2.0)*edgeR;
+  const double inv=w.fun=='s'?std::asin(std::clamp(a,-1.0,1.0)):w.fun=='t'?std::atan(a):a;
+  const double theta=std::clamp(w.c2*(inv-w.c3),0.0,recovery::Pi/2-0.001);
+  return math::Vector3d(std::cos(theta),-std::sin(theta)*vx/r,-std::sin(theta)*vy/r);
+}
+
 class ShmCameraExportPlugin
   : public System,
     public ISystemConfigure,
@@ -685,7 +705,6 @@ class ShmCameraExportPlugin
         due.emplace_back(inst, c.get(), cam, simNs);
       }
     }
-    if (!due.empty()) scn->PreRender();
     Cam *referenceCam=nullptr;
     rendering::CameraPtr referenceRendering;
     for(auto *inst:reg) if(lab.enabled && inst->modelName==lab.config.model)
@@ -693,6 +712,46 @@ class ShmCameraExportPlugin
         referenceCam=candidate.get();referenceRendering=inst->FindCamera(*candidate,*scn);
       }
     const math::Pose3d referencePose=referenceRendering?referenceRendering->WorldPose():math::Pose3d::Zero;
+    // Owned scene: place the test target BEFORE the scene update. Ogre computes
+    // each node's world transform and bounding box in Scene::PreRender(); a
+    // visual moved after it is culled against its old box, so the target
+    // vanished whenever the camera no longer looked at its spawn point (a
+    // camera refreshes its own transform when it renders, which is why camera
+    // overrides worked). The placement depends only on the lab parameters and
+    // the clock, never on the per-camera shake, so one pose serves every camera
+    // of the pass; it is restored after the pass.
+    rendering::VisualPtr placedTarget;
+    math::Pose3d placedSaved;
+    math::Vector3d placedScale;
+    if(!due.empty() && referenceRendering && lab.config.target[0]
+        && (lab.config.reserved & recovery::OverrideScene)!=0) {
+      for(unsigned vi=0; vi<scn->VisualCount(); ++vi) {
+        auto v=scn->VisualByIndex(vi);
+        const std::string name=v->Name(),suffix="::"+std::string(lab.config.target);
+        if(name==lab.config.target || (name.size()>suffix.size() &&
+             name.compare(name.size()-suffix.size(),suffix.size(),suffix)==0)) {placedTarget=v;break;}
+      }
+      if(placedTarget) {
+        const auto &p=lab.config.p;
+        int64_t refNs=-1,latestDueNs=0;            // the reference camera's clock, else the latest
+        for(auto &d:due) {
+          latestDueNs=std::max(latestDueNs,std::get<3>(d));
+          if(std::get<1>(d)==referenceCam) refNs=std::get<3>(d);
+        }
+        if(refNs<0) refNs=latestDueNs;
+        const double referenceF=p.referenceWidth/(2*std::tan(p.referenceHfovDeg*recovery::Pi/360));
+        const auto uv=recovery::target(p,refNs*1e-9-lab.epoch);
+        const auto ray=PixelRay(referenceCam && referenceCam->hasWarp ? &referenceCam->warp : nullptr,
+                                p.referenceWidth,referenceF,uv[0],uv[1]);
+        const math::Quaterniond base(0,-p.pitchDeg*recovery::Pi/180,p.yawDeg*recovery::Pi/180);
+        const math::Vector3d origin(p.cameraX,p.cameraY,p.cameraZ);
+        placedSaved=placedTarget->WorldPose();placedScale=placedTarget->LocalScale();
+        placedTarget->SetWorldPose(math::Pose3d(origin+base.RotateVector(ray*(p.targetDistance/ray.X())),
+                                                placedSaved.Rot()));
+        placedTarget->SetLocalScale(placedScale*p.targetScale);
+      }
+    }
+    if (!due.empty()) scn->PreRender();
     for (auto &[inst, cptr, cam, simNs] : due)
     {
       Cam &c_ = *cptr;
@@ -720,18 +779,8 @@ class ShmCameraExportPlugin
         // Invert the actual output projection, including the existing fisheye
         // warp's vertical stretch. Pixel motion is in the reference-width grid.
         auto pixelRay=[&](double u,double v) {
-          if(!referenceCam || !referenceCam->hasWarp) return math::Vector3d(1,-u/referenceF,-v/referenceF).Normalized();
-          const auto &w=referenceCam->warp;
-          const double ratio=w.outW/referenceWidth;
-          const double vx=u*ratio,vy=v*ratio*(w.virtH>0?w.virtH/w.outH:1);
-          const double r=std::hypot(vx,vy);
-          if(r<1e-9) return math::Vector3d::UnitX;
-          const double edge=w.outHfovDeg*recovery::Pi/360/w.c2+w.c3;
-          const double edgeR=w.fun=='s'?std::sin(edge):w.fun=='t'?std::tan(edge):edge;
-          const double a=r/(w.outW/2.0)*edgeR;
-          const double inv=w.fun=='s'?std::asin(std::clamp(a,-1.0,1.0)):w.fun=='t'?std::atan(a):a;
-          const double theta=std::clamp(w.c2*(inv-w.c3),0.0,recovery::Pi/2-0.001);
-          return math::Vector3d(std::cos(theta),-std::sin(theta)*vx/r,-std::sin(theta)*vy/r);
+          return PixelRay(referenceCam && referenceCam->hasWarp ? &referenceCam->warp : nullptr,
+                          referenceWidth,referenceF,u,v);
         };
         math::Vector3d ray=pixelRay(s.u,s.v);
         math::Quaterniond shake;shake.SetFrom2Axes(ray,math::Vector3d::UnitX);
@@ -757,10 +806,9 @@ class ShmCameraExportPlugin
                name.compare(name.size()-suffix.size(),suffix.size(),suffix)==0)) {testTarget=v;break;}
         }
         if(testTarget && overrideScene) {
-          savedTarget=testTarget->WorldPose();savedScale=testTarget->LocalScale();
-          testTarget->SetWorldPose(math::Pose3d(origin+base.RotateVector(relative),savedTarget.Rot()));
-          testTarget->SetLocalScale(savedScale*p.targetScale);
-          targetChanged=true;
+          // Already placed (at origin + base * relative) before Scene::PreRender;
+          // see placedTarget above. uv/relative still feed the status below.
+          (void)relative;
         } else if(testTarget) {
           const auto pos=base.RotateVectorReverse(testTarget->WorldPose().Pos()-origin);
           if(pos.X()>0) {
@@ -838,6 +886,7 @@ class ShmCameraExportPlugin
       c->copyUs   += std::chrono::duration<double, std::micro>(t2 - t1).count();
       c->nStat++;
     }
+    if(placedTarget) {placedTarget->SetWorldPose(placedSaved);placedTarget->SetLocalScale(placedScale);}
     if (!due.empty() && !scn->LegacyAutoGpuFlush()) scn->PostRender();
     const auto now = std::chrono::steady_clock::now();
     this->inPluginUs += std::chrono::duration<double, std::micro>(now - cycleStart).count();

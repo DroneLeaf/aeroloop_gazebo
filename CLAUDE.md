@@ -1,5 +1,32 @@
 # CLAUDE.md — Agent Handover (`aeroloop_gazebo/`)
 
+## Session Addendum (2026-10-25b) — owned-scene target vanished whenever the camera moved
+
+- **Symptom (Tracker Shake Lab, isolated scene):** the target rendered only while
+  the virtual camera looked at the target's SPAWN point (80 m east, 10 m up);
+  any other camera height / yaw / elevation showed empty sky or ground, although
+  Status said target found at uv (0, 0). Measured on a private scene: camera at
+  10 m / −2° → target at centre; 40 m, or yaw 90° + elevation 45° → 0 target px.
+- **Cause:** OnPostRender ran `Scene::PreRender()` (Ogre's scene-graph update:
+  node world transforms + bounding boxes) BEFORE moving the target, then moved
+  it, rendered and restored it. The target was culled against its stale
+  spawn-point box. Cameras refresh their own transform when rendering, so the
+  camera override always worked; `static` was not the cause (tested non-static).
+  The lab's smoke test never moves the camera, so it never hit this.
+- **Fix:** in owned mode (`OverrideScene`) the target is placed and scaled ONCE,
+  before `scn->PreRender()`, and restored after the pass (`placedTarget`). Its
+  placement depends only on the lab parameters and the clock (never the
+  per-camera shake), so one pose serves every camera. The per-camera code still
+  computes uv for Status. The ray inverse is now one function, `PixelRay`.
+  Attached mode never moves the target and is unchanged.
+- **Rule:** anything that must be culled/drawn at a NEW pose in this pass has to
+  be moved before `Scene::PreRender()`; only cameras may move after it.
+- Verified: the same private-scene cases now render the target at the centre
+  (40 m: 24 px; yaw 90 / el 45 at 80 m: 46 px, at 30 m: 382 px); `smoke_runtime
+  --camera-hz 240` (60.016 px offset, shake, 238–240 FPS throughout),
+  `smoke_attached` and `smoke_attached --warp` all PASS. **Rebuilt**
+  (`--target ShmCameraExportPlugin`); a running Gazebo keeps the old plugin.
+
 ## Session Addendum (2026-10-25) — return to the normal single-output pipeline
 
 - Supersedes prior recovery-rate notes: ShmCameraExportPlugin exports every due
