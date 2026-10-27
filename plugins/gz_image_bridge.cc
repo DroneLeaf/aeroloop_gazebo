@@ -437,14 +437,15 @@ static void shmSegmentWrite(ShmSegment &seg, const std::string &frame,
     auto *hdr = reinterpret_cast<ShmHeader*>(seg.ptr);
     uint8_t *dst = seg.ptr + sizeof(ShmHeader);
     size_t copy_size = std::min(frame.size(), static_cast<size_t>(hdr->frame_size));
+    __atomic_store_n(&hdr->timestamp_ns, uint64_t{0}, __ATOMIC_RELEASE);
     std::memcpy(dst, frame.data(), copy_size);
 
     __atomic_thread_fence(__ATOMIC_RELEASE);
 
-    hdr->timestamp_ns = static_cast<uint64_t>(
-        std::chrono::steady_clock::now().time_since_epoch().count());
     hdr->sim_time_ns = sim_ns;
     hdr->sequence++;
+    __atomic_store_n(&hdr->timestamp_ns, static_cast<uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count()), __ATOMIC_RELEASE);
 }
 
 static void cleanupShmSegment(ShmSegment &seg)
@@ -2422,8 +2423,9 @@ static void shmSourceThread(const std::string &raw_name)
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             continue;
         }
+        const uint64_t stamp1 = hdr->timestamp_ns;
         const uint64_t s1 = hdr->sequence;
-        if (s1 == last_seq || s1 == 0)
+        if (!stamp1 || s1 == last_seq || s1 == 0)
         {
             std::this_thread::sleep_for(std::chrono::microseconds(300));
             continue;
@@ -2447,7 +2449,7 @@ static void shmSourceThread(const std::string &raw_name)
             frame.assign(reinterpret_cast<const char *>(ptr + sizeof(ShmHeader)), hdr->frame_size);
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
         const uint64_t s2 = hdr->sequence;
-        if (s1 != s2) continue;                 // torn — the writer moved on; retry
+        if (s1 != s2 || stamp1 != hdr->timestamp_ns) continue; // writer moved on; retry
         last_seq = s1;
         {
             std::lock_guard<std::mutex> lk(g_mutex);
