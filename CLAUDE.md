@@ -1,5 +1,26 @@
 # CLAUDE.md — Agent Handover (`aeroloop_gazebo/`)
 
+## Session Addendum (2026-11-04) — camera gimbal links + joints from the pose datagram
+
+- The 3 drone vis templates gained `gimbal_enabled` (betaloop compute_model_vars):
+  the five onboard camera sensors live in a Jinja macro `onboard_cameras()` (text
+  unchanged) emitted on base_link when off — 30 renders byte-identical — and on a
+  new `gimbal_link` when on. `gimbal_tilt_link` → `gimbal_link`, both with link
+  frame = model origin (camera poses unchanged at neutral), revolute
+  `gimbal_tilt_joint` (outer, = the C-40D's roll) / `gimbal_pan_joint` (inner,
+  = its pitch; DroneLeaf names since 2026-11-05). Axes = DroneLeaf's measured
+  mounting (gimbal faces the drone's left): tilt 0 1 0, pan 1 0 0 in FLU
+  (were 1 0 0 / 0 −1 0, the upright manufacturer layout, until 2026-11-05) posed at the cameras' common mount point (rocket/thaqib 0 0 0.262,
+  iris 0.15 0 0.03), CoM on both axes. Chase cam stays on base_link.
+- `ExternalPosePlugin`: optional `<joint>` children; a datagram of 72 + 8·k bytes
+  appends k joint positions (rad), applied with JointPositionReset + zero
+  JointVelocityReset EVERY step (RotorVisualPlugin pattern) in the same PreUpdate
+  as the pose. 72-byte datagrams leave the joints alone; an old build's 72-byte
+  recv truncates an 88-byte datagram and just applies the pose. **Rebuilt.**
+- Verified in an isolated gz partition: neutral gimbal pixel-identical to the
+  base_link render; markers within 0.81 px of the analytic projection (pitch ±5,
+  roll ±10, both). Needs `<gravity>0 0 0</gravity>` like the real worlds.
+
 ## Session Addendum (2026-10-25b) — owned-scene target vanished whenever the camera moved
 
 - **Symptom (Tracker Shake Lab, isolated scene):** the target rendered only while

@@ -4,52 +4,8 @@
      Rotor spin driven by RotorVisualPlugin (UDP 9012). -->
 <sdf version="1.9">
   <model name="iris">
-    <static>false</static>
-    <pose>0 0 0.194923 0 0 0</pose>
-
-    <link name="base_link">
-      <pose>0 0 0 0 0 0</pose>
-      <inertial>
-        <pose>0 0 0 0 0 0</pose>
-        <mass>{{ "%.6g"|format(mass) }}</mass>
-        <inertia>
-          <ixx>{{ "%.6g"|format(ixx) }}</ixx><ixy>0</ixy><ixz>0</ixz>
-          <iyy>{{ "%.6g"|format(iyy) }}</iyy><iyz>0</iyz>
-          <izz>{{ "%.6g"|format(izz) }}</izz>
-        </inertia>
-      </inertial>
-      <visual name="base_link_visual">
-        <geometry>
-          <mesh>
-            <uri>model://betaloop_iris_with_standoffs/meshes/iris.dae</uri>
-          </mesh>
-        </geometry>
-        <material>
-          <ambient>0.3 0.3 0.3 1</ambient>
-          <diffuse>0.3 0.3 0.3 1</diffuse>
-          <specular>0.1 0.1 0.1 1</specular>
-        </material>
-      </visual>
-      <visual name='front_left_leg_visual'>
-        <pose>0.123 0.22 {{ "%.4g"|format(leg_z) }} 0 0 0</pose>
-        <geometry><cylinder><radius>0.005</radius><length>{{ "%.4g"|format(standoff_height) }}</length></cylinder></geometry>
-        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
-      </visual>
-      <visual name='front_right_leg_visual'>
-        <pose>0.123 -0.22 {{ "%.4g"|format(leg_z) }} 0 0 0</pose>
-        <geometry><cylinder><radius>0.005</radius><length>{{ "%.4g"|format(standoff_height) }}</length></cylinder></geometry>
-        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
-      </visual>
-      <visual name='rear_left_leg_visual'>
-        <pose>-0.140 0.21 {{ "%.4g"|format(leg_z) }} 0 0 0</pose>
-        <geometry><cylinder><radius>0.005</radius><length>{{ "%.4g"|format(standoff_height) }}</length></cylinder></geometry>
-        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
-      </visual>
-      <visual name='rear_right_leg_visual'>
-        <pose>-0.140 -0.21 {{ "%.4g"|format(leg_z) }} 0 0 0</pose>
-        <geometry><cylinder><radius>0.005</radius><length>{{ "%.4g"|format(standoff_height) }}</length></cylinder></geometry>
-        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
-      </visual>
+    <static>false</static>{#- The onboard cameras: on base_link, or on the camera gimbal's payload link
+     (gimbal_link) when gimbal_enabled. Both frames coincide at neutral. #}{%- macro onboard_cameras() %}
       {%- if pilot_cam_enabled %}
       <sensor name="fpv_cam" type="camera">
         <pose>0.15 0 0.03 0 {{ "%.10g"|format(fpv_cam_pitch_rad) }} 0</pose>
@@ -131,6 +87,53 @@
         <visualize>0</visualize>
       </sensor>
       {%- endif %}
+    {%- endmacro %}
+    <pose>0 0 0.194923 0 0 0</pose>
+
+    <link name="base_link">
+      <pose>0 0 0 0 0 0</pose>
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>{{ "%.6g"|format(mass) }}</mass>
+        <inertia>
+          <ixx>{{ "%.6g"|format(ixx) }}</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>{{ "%.6g"|format(iyy) }}</iyy><iyz>0</iyz>
+          <izz>{{ "%.6g"|format(izz) }}</izz>
+        </inertia>
+      </inertial>
+      <visual name="base_link_visual">
+        <geometry>
+          <mesh>
+            <uri>model://betaloop_iris_with_standoffs/meshes/iris.dae</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.3 0.3 0.3 1</ambient>
+          <diffuse>0.3 0.3 0.3 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <visual name='front_left_leg_visual'>
+        <pose>0.123 0.22 {{ "%.4g"|format(leg_z) }} 0 0 0</pose>
+        <geometry><cylinder><radius>0.005</radius><length>{{ "%.4g"|format(standoff_height) }}</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name='front_right_leg_visual'>
+        <pose>0.123 -0.22 {{ "%.4g"|format(leg_z) }} 0 0 0</pose>
+        <geometry><cylinder><radius>0.005</radius><length>{{ "%.4g"|format(standoff_height) }}</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name='rear_left_leg_visual'>
+        <pose>-0.140 0.21 {{ "%.4g"|format(leg_z) }} 0 0 0</pose>
+        <geometry><cylinder><radius>0.005</radius><length>{{ "%.4g"|format(standoff_height) }}</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name='rear_right_leg_visual'>
+        <pose>-0.140 -0.21 {{ "%.4g"|format(leg_z) }} 0 0 0</pose>
+        <geometry><cylinder><radius>0.005</radius><length>{{ "%.4g"|format(standoff_height) }}</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      {%- if not gimbal_enabled %}{{ onboard_cameras() }}{% endif %}
       {%- if chase_cam_enabled %}
       <sensor name="chase_cam" type="camera">
         <pose>-1.5 0 0.8 0 0.5236 0</pose>
@@ -145,6 +148,39 @@
       </sensor>
       {%- endif %}
     </link>
+    {%- if gimbal_enabled %}
+    <!-- Camera gimbal (AllXF C-40D, simulated by bf_sim_bridge gimbal.h): every
+         onboard camera rides gimbal_link. Both gimbal link frames coincide with
+         base_link at neutral, so the camera poses are unchanged; the joints pass
+         through the cameras' common mount point (0.15 0 0.03). DroneLeaf axis
+         names, like the launcher: TILT = the C-40D's roll axis, PAN = its pitch
+         axis. Tilt joint outer, pan inner; joint positions are the gimbal's
+         relative angles in radians. Axes = DroneLeaf's mounting, measured
+         against the real unit (gimbal.h Config::mount): the gimbal faces the
+         drone's LEFT, so tilt (its roll) turns about the drone's left axis
+         (0 1 0 in FLU) and pan (its pitch) about the drone's forward axis
+         (1 0 0). Set kinematically by ExternalPosePlugin from the pose
+         datagram; the centre of mass sits on both axes, so gravity adds no torque. -->
+    <link name="gimbal_tilt_link">
+      <pose>0 0 0 0 0 0</pose>
+      <inertial><pose>0.15 0 0.03 0 0 0</pose><mass>0.01</mass><inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-6</iyy><iyz>0</iyz><izz>1e-6</izz></inertia></inertial>
+    </link>
+    <link name="gimbal_link">
+      <pose>0 0 0 0 0 0</pose>
+      <inertial><pose>0.15 0 0.03 0 0 0</pose><mass>0.01</mass><inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-6</iyy><iyz>0</iyz><izz>1e-6</izz></inertia></inertial>
+      {{ onboard_cameras() }}
+    </link>
+    <joint name="gimbal_tilt_joint" type="revolute">
+      <pose>0.15 0 0.03 0 0 0</pose>
+      <parent>base_link</parent><child>gimbal_tilt_link</child>
+      <axis><xyz>0 1 0</xyz><limit><lower>-3.14159</lower><upper>3.14159</upper></limit></axis>
+    </joint>
+    <joint name="gimbal_pan_joint" type="revolute">
+      <pose>0.15 0 0.03 0 0 0</pose>
+      <parent>gimbal_tilt_link</parent><child>gimbal_link</child>
+      <axis><xyz>1 0 0</xyz><limit><lower>-3.14159</lower><upper>3.14159</upper></limit></axis>
+    </joint>
+    {%- endif %}
 
     <link name="rotor_0"><pose>0.13 -0.22 0.023 0 0 0</pose>
       <inertial><mass>0.025</mass><inertia><ixx>9.75e-06</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000166704</iyy><iyz>0</iyz><izz>0.000167604</izz></inertia></inertial>
@@ -184,6 +220,10 @@
     {%- endif %}
     <plugin filename="ExternalPosePlugin" name="gz::sim::systems::ExternalPosePlugin">
       <listen_port>{{ pose_port | default(9010) }}</listen_port>
+      {%- if gimbal_enabled %}
+      <joint>gimbal_tilt_joint</joint>
+      <joint>gimbal_pan_joint</joint>
+      {%- endif %}
     </plugin>
     <plugin filename="RotorVisualPlugin" name="gz::sim::systems::RotorVisualPlugin">
       <listen_port>{{ rotor_port | default(9012) }}</listen_port>
