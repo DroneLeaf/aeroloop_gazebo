@@ -488,6 +488,8 @@ class ShmCameraExportPlugin
     size_t size{0};
     uint64_t seq{0};
     bool warnedNoCam{false};
+    bool recoveryNorthUp{false}; // owned upward camera: quarter-turn mount + horizontal reflection
+    std::vector<uint8_t> northUpBuffer; // cached staging: avoid scalar reads from a mapped GPU buffer
     // timing stats (render thread only): microseconds accumulated since last report
     double renderUs{0}, copyUs{0}; uint32_t nStat{0};
     double issueUs{0}, waitUs{0}, mapUs{0};   // async phases
@@ -547,6 +549,7 @@ class ShmCameraExportPlugin
       this->modelName = n->Data();
     if (_sdf)
     {
+      if(auto north=_sdf->FindElement("recovery_north_up"))this->recoveryNorthUp=north->Get<bool>();
       auto el = _sdf->FindElement("sensor");
       while (el)
       {
@@ -639,6 +642,7 @@ class ShmCameraExportPlugin
         auto c = std::make_unique<Cam>();
         c->entity = _e;
         c->shortName = sname;
+        c->recoveryNorthUp=this->recoveryNorthUp;
         c->scoped = scopedName(_e, _ecm, "::", false);
         c->shmName = "/gz_cam_" + this->modelName + "_" + sname + "_raw";
         for (auto &ch : c->shmName)
@@ -741,13 +745,19 @@ class ShmCameraExportPlugin
         if(refNs<0) refNs=latestDueNs;
         const double referenceF=p.referenceWidth/(2*std::tan(p.referenceHfovDeg*recovery::Pi/360));
         const auto uv=recovery::target(p,refNs*1e-9-lab.epoch);
+        const bool northUp=referenceCam && referenceCam->recoveryNorthUp;
         const auto ray=PixelRay(referenceCam && referenceCam->hasWarp ? &referenceCam->warp : nullptr,
-                                p.referenceWidth,referenceF,uv[0],uv[1]);
-        const math::Quaterniond base(0,-p.pitchDeg*recovery::Pi/180,p.yawDeg*recovery::Pi/180);
+                                p.referenceWidth,referenceF,northUp?-uv[0]:uv[0],uv[1]);
+        const math::Quaterniond base(northUp?-recovery::Pi/2:0,-p.pitchDeg*recovery::Pi/180,p.yawDeg*recovery::Pi/180);
         const math::Vector3d origin(p.cameraX,p.cameraY,p.cameraZ);
         placedSaved=placedTarget->WorldPose();placedScale=placedTarget->LocalScale();
-        placedTarget->SetWorldPose(math::Pose3d(origin+base.RotateVector(ray*(p.targetDistance/ray.X())),
-                                                placedSaved.Rot()));
+        if(p.targetMotion==6) {
+          const auto wp=recovery::worldTarget(p,refNs*1e-9-lab.epoch);
+          placedTarget->SetWorldPose(math::Pose3d(wp[0],wp[1],wp[2],0,0,wp[3]));
+        } else {
+          placedTarget->SetWorldPose(math::Pose3d(origin+base.RotateVector(ray*(p.targetDistance/ray.X())),
+                                                  placedSaved.Rot()));
+        }
         placedTarget->SetLocalScale(placedScale*p.targetScale);
       }
     }
@@ -780,13 +790,13 @@ class ShmCameraExportPlugin
         // warp's vertical stretch. Pixel motion is in the reference-width grid.
         auto pixelRay=[&](double u,double v) {
           return PixelRay(referenceCam && referenceCam->hasWarp ? &referenceCam->warp : nullptr,
-                          referenceWidth,referenceF,u,v);
+                          referenceWidth,referenceF,referenceCam->recoveryNorthUp?-u:u,v);
         };
         math::Vector3d ray=pixelRay(s.u,s.v);
         math::Quaterniond shake;shake.SetFrom2Axes(ray,math::Vector3d::UnitX);
-        shake=shake*math::Quaterniond(s.roll,0,0);
+        shake=shake*math::Quaterniond(referenceCam->recoveryNorthUp?-s.roll:s.roll,0,0);
         const math::Quaterniond base=overrideScene
-            ? math::Quaterniond(0,-p.pitchDeg*recovery::Pi/180,p.yawDeg*recovery::Pi/180) : referencePose.Rot();
+            ? math::Quaterniond(referenceCam->recoveryNorthUp?-recovery::Pi/2:0,-p.pitchDeg*recovery::Pi/180,p.yawDeg*recovery::Pi/180) : referencePose.Rot();
         const math::Vector3d origin=overrideScene
             ? math::Vector3d(p.cameraX,p.cameraY,p.cameraZ) : referencePose.Pos();
         const auto relativeMount=referencePose.Rot().Inverse()*savedCamera.Rot();
@@ -796,20 +806,15 @@ class ShmCameraExportPlugin
         cameraChanged=overrideScene || s.u!=0 || s.v!=0 || s.roll!=0;
         if(cameraChanged)
           cam->SetWorldPose(math::Pose3d(origin+(base*shake).RotateVector(mountOffset),base*shake*relativeMount));
-        auto uv=overrideScene ? recovery::target(p,t-lab.epoch) : std::array<double,2>{0,0};
-        const auto targetRay=pixelRay(uv[0],uv[1]);
-        const math::Vector3d relative=targetRay*(p.targetDistance/targetRay.X());
+        std::array<double,2> uv{0,0};
         for(unsigned vi=0; lab.config.target[0] && vi<scn->VisualCount();++vi) {
           auto v=scn->VisualByIndex(vi);
           const std::string name=v->Name(),suffix="::"+std::string(lab.config.target);
           if(name==lab.config.target || (name.size()>suffix.size() &&
                name.compare(name.size()-suffix.size(),suffix.size(),suffix)==0)) {testTarget=v;break;}
         }
-        if(testTarget && overrideScene) {
-          // Already placed (at origin + base * relative) before Scene::PreRender;
-          // see placedTarget above. uv/relative still feed the status below.
-          (void)relative;
-        } else if(testTarget) {
+        if(testTarget) {
+          // Project the actual placed world trajectory as well as image-plane motion.
           const auto pos=base.RotateVectorReverse(testTarget->WorldPose().Pos()-origin);
           if(pos.X()>0) {
             if(referenceCam->hasWarp) {
@@ -825,7 +830,8 @@ class ShmCameraExportPlugin
         }
         auto &st=lab.status;
         if(&c_==referenceCam) {
-        st.reserved=testTarget ? 1 : 0;
+        if(referenceCam->recoveryNorthUp)uv[0]=-uv[0];
+        st.reserved=testTarget && base.RotateVectorReverse(testTarget->WorldPose().Pos()-origin).X()>0 ? 1 : 0;
         st.u=s.u*p.pixelScale;st.v=s.v*p.pixelScale;
         st.targetU=uv[0]*p.pixelScale;st.targetV=uv[1]*p.pixelScale;
         st.focal=referenceF;st.width=c_.hasWarp?c_.warp.outW:cam->ImageWidth();
@@ -1365,7 +1371,26 @@ class ShmCameraExportPlugin
     auto *hdr = reinterpret_cast<ShmHeader *>(_c.ptr);
     // A zero timestamp marks an in-progress copy for normal camera readers.
     __atomic_store_n(&hdr->timestamp_ns,0,__ATOMIC_RELEASE);
-    std::memcpy(_c.ptr + sizeof(ShmHeader), _data, std::min<size_t>(_n, hdr->frame_size));
+    auto *destination=_c.ptr+sizeof(ShmHeader);
+    if(_c.recoveryNorthUp && _w && _h && hdr->channels>=3 && _n>=hdr->frame_size) {
+      // Correct the owned camera's below-target handedness in the normal source
+      // stream, so the tracker, preview and physical monitor all see the same view.
+      const size_t channels=hdr->channels, stride=static_cast<size_t>(_w)*channels;
+      _c.northUpBuffer.resize(hdr->frame_size);
+      std::memcpy(_c.northUpBuffer.data(),_data,hdr->frame_size);
+      const auto *cached=_c.northUpBuffer.data();
+      for(uint32_t y=0;y<_h;++y) {
+        uint32_t x=0;
+        if(channels==4)for(;x+4<=_w;x+=4) {
+          uint32_t pixels[4];
+          std::memcpy(pixels,cached+y*stride+(_w-x-4)*4,16);
+          std::swap(pixels[0],pixels[3]);std::swap(pixels[1],pixels[2]);
+          std::memcpy(destination+y*stride+x*4,pixels,16);
+        }
+        for(;x<_w;++x)
+          std::memcpy(destination+y*stride+x*channels,cached+y*stride+(_w-1-x)*channels,channels);
+      }
+    } else std::memcpy(destination, _data, std::min<size_t>(_n, hdr->frame_size));
     __atomic_thread_fence(__ATOMIC_RELEASE);
     hdr->sim_time_ns = static_cast<uint64_t>(_simNs);
     hdr->sequence = ++_c.seq;
@@ -1393,6 +1418,7 @@ class ShmCameraExportPlugin
   private: std::map<std::string, WarpSpec> warps;   // sensor -> <warp> spec
   private: bool forceSync{false};
   private: bool noGpuWarp{false};   // SHM_EXPORT_NO_GPU_WARP=1: CPU warp (A/B, fallback test)
+  private: bool recoveryNorthUp{false}; // explicit owned-scene opt-in; ordinary cameras unchanged
   private: std::vector<std::unique_ptr<Cam>> cams;
   private: std::mutex enumMutex;
   private: std::atomic<bool> enumerated{false};

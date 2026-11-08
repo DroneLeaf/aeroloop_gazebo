@@ -11,7 +11,7 @@
 
 namespace recovery {
 constexpr uint32_t Magic = 0x53484b31;  // SHK1, little endian on the wire
-constexpr uint32_t Version = 3;  // Shake-only control; camera rates belong to the simulator.
+constexpr uint32_t Version = 4;  // Native target trajectories; camera rates belong to the simulator.
 constexpr double Pi = 3.14159265358979323846;
 enum Command : uint32_t { Configure=1, Trigger=2, Reset=3, Release=4, Poll=5 };
 // Configure flags: zero always follows the live simulation. Absolute scene
@@ -21,18 +21,22 @@ constexpr uint32_t OverrideScene = 1;
 struct Parameters {
   double velocity=1800, duration=0.5, lowHz=6, highHz=25, displacement=180;
   double horizontal=1, vertical=1, rollDeg=0, seed=1, trajectory=0;
-  double cameraX=0, cameraY=0, cameraZ=10, yawDeg=0, pitchDeg=0;
-  double targetDistance=80, targetU=0, targetV=0, targetMotion=0;
+  double cameraX=0, cameraY=0, cameraZ=10, yawDeg=0, pitchDeg=90;
+  double targetDistance=140, targetU=0, targetV=0, targetMotion=0;
   double targetAmplitude=100, targetSpeed=120, targetScale=1;
   double referenceWidth=854, referenceHfovDeg=45, pixelScale=1;
+  double targetAspect=1, targetPhaseDeg=0, targetAltitude=150;
+  double loopEast=0, loopNorth=0, loopEW=40, loopNS=20, loopRadius=10;
+  double loopRotationDeg=0, loopStart=0, loopReverse=0, loopSpeed=18;
+  double loopPerturb=0, loopLatAmp=10, loopLatHz=.1, loopVertAmp=5, loopVertHz=.1, loopPhaseDeg=0;
 };
-static_assert(sizeof(Parameters)==25*8, "Update Python wire contract too");
+static_assert(sizeof(Parameters)==43*8, "Update Python wire contract too");
 struct Packet {
   uint32_t magic=Magic, version=Version, command=Poll, owner=0, request=0, reserved=0;
   char model[64]{}, sensor[64]{}, target[64]{};
   Parameters p;
 };
-static_assert(sizeof(Packet)==416, "wire packet");
+static_assert(sizeof(Packet)==560, "wire packet");
 struct Status {
   uint32_t magic=Magic, version=Version, request=0, code=0;
   uint32_t active=0, shaking=0, trial=0, reserved=0;
@@ -43,15 +47,19 @@ struct Status {
 static_assert(sizeof(Status)==136, "wire status");
 inline bool valid(const Parameters &p) {
   const double *v = reinterpret_cast<const double *>(&p);
-  for (unsigned i=0; i<25; ++i) if (!std::isfinite(v[i])) return false;
+  for (unsigned i=0; i<43; ++i) if (!std::isfinite(v[i])) return false;
   return p.velocity>=0 && p.duration>=0.02 && p.duration<=60 && p.lowHz>0
       && p.highHz>=p.lowHz && p.highHz<1000 && p.displacement>=0
       && p.horizontal>=0 && p.vertical>=0 && p.seed>=0 && p.seed<=4294967295.0
       && p.trajectory>=0 && p.trajectory<=3 && std::floor(p.trajectory)==p.trajectory
-      && p.targetMotion>=0 && p.targetMotion<=2 && std::floor(p.targetMotion)==p.targetMotion
+      && p.targetMotion>=0 && p.targetMotion<=6 && std::floor(p.targetMotion)==p.targetMotion
       && p.targetDistance>0 && p.targetAmplitude>=0 && p.targetSpeed>=0 && p.targetScale>0
       && p.referenceWidth>0 && p.referenceHfovDeg>0 && p.referenceHfovDeg<179
-      && p.pixelScale>0;
+      && p.pixelScale>0 && std::floor(p.seed)==p.seed && p.targetAspect>=0
+      && p.loopEW>=0 && p.loopNS>=0 && p.loopRadius>=0 && p.loopSpeed>=0
+      && p.loopStart>=0 && p.loopStart<=1 && (p.loopReverse==0 || p.loopReverse==1)
+      && (p.loopPerturb==0 || p.loopPerturb==1) && p.loopLatAmp>=0 && p.loopLatHz>=0
+      && p.loopVertAmp>=0 && p.loopVertHz>=0;
 }
 struct Sample { double u=0,v=0,roll=0; };
 class Motion {
@@ -103,10 +111,42 @@ inline std::array<double,2> target(const Parameters &p,double t) {
   double u=p.targetU/p.pixelScale,v=p.targetV/p.pixelScale;
   const double a=p.targetAmplitude/p.pixelScale, speed=p.targetSpeed/p.pixelScale;
   if(a>0 && p.targetMotion>0) {
-    double phase=speed/a*t;
-    u+=a*std::sin(phase);
-    if(p.targetMotion==2) v+=a*(1-std::cos(phase));
+    double phase=speed/a*t+p.targetPhaseDeg*Pi/180;
+    if(p.targetMotion==3) v+=a*std::sin(phase);
+    else if(p.targetMotion<6) {
+      u+=a*std::sin(phase);
+      if(p.targetMotion==2) v+=a*(1-std::cos(phase)); // preserve legacy circle
+      if(p.targetMotion==4) v+=a*p.targetAspect*std::cos(phase);
+      if(p.targetMotion==5) v+=a*p.targetAspect*std::sin(2*phase);
+    }
   }
   return {u,v};
+}
+
+// Exact general-loop geometry from betaloop/common.py::trajectory_sample.
+// Arc length sets constant speed; rotation pivots about the geometric centre.
+inline std::array<double,3> loopLocal(double s,double a,double b,double r) {
+  r=std::max(r,1e-3);const double q=Pi/2*r, perimeter=2*a+2*b+4*q;
+  double u=std::fmod(std::fmod(s,perimeter)+perimeter,perimeter),ang;
+  if(u<a)return {u,0,0};u-=a;
+  if(u<q){ang=-Pi/2+u/r;return {a+r*std::cos(ang),r+r*std::sin(ang),ang+Pi/2};}u-=q;
+  if(u<b)return {a+r,r+u,Pi/2};u-=b;
+  if(u<q){ang=u/r;return {a+r*std::cos(ang),r+b+r*std::sin(ang),ang+Pi/2};}u-=q;
+  if(u<a)return {a-u,2*r+b,Pi};u-=a;
+  if(u<q){ang=Pi/2+u/r;return {r*std::cos(ang),r+b+r*std::sin(ang),ang+Pi/2};}u-=q;
+  if(u<b)return {-r,r+b-u,-Pi/2};u-=b;
+  ang=Pi+u/r;return {r*std::cos(ang),r+r*std::sin(ang),ang+Pi/2};
+}
+// East, North, altitude, heading. Independent of camera pose and pixel calibration.
+inline std::array<double,4> worldTarget(const Parameters &p,double t) {
+  const double r=std::max(p.loopRadius,1e-3), perimeter=2*p.loopEW+2*p.loopNS+2*Pi*r;
+  const auto local=loopLocal(p.loopStart*perimeter+(p.loopReverse?-1:1)*p.loopSpeed*t,p.loopEW,p.loopNS,r);
+  const double th=p.loopRotationDeg*Pi/180,c=std::cos(th),s=std::sin(th);
+  const double x=local[0]-p.loopEW/2,y=local[1]-r-p.loopNS/2;
+  const double yaw=local[2]+th+(p.loopReverse?Pi:0);
+  const double lat=p.loopPerturb*p.loopLatAmp*std::sin(2*Pi*p.loopLatHz*t);
+  const double vert=p.loopPerturb*p.loopVertAmp*std::sin(2*Pi*p.loopVertHz*t+p.loopPhaseDeg*Pi/180);
+  return {p.loopEast+x*c-y*s-lat*std::sin(yaw),p.loopNorth+x*s+y*c+lat*std::cos(yaw),
+          p.targetAltitude+vert,yaw};
 }
 }  // namespace recovery
